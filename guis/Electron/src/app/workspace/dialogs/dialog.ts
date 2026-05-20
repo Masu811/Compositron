@@ -11,6 +11,7 @@ import { SplitDialog } from "./dialogs/split";
 import { PlotDialog } from "./dialogs/plot";
 import { AverageDialog } from "./dialogs/average";
 import { SumDialog } from "./dialogs/sum";
+import { RatioPlotterDialog } from "./dialogs/ratio_plotter";
 
 @Component({
   selector: "custom-dialog",
@@ -39,6 +40,8 @@ export class Dialog {
         return SumDialog;
       case "plot":
         return PlotDialog;
+      case "ratio_plotter":
+        return RatioPlotterDialog;
       default:
         return null;
     }

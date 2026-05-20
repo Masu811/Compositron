@@ -41,7 +41,7 @@
             <td (click)="sum()">Sum</td>
             <td>Plot Metadata</td>
             @if (appData.selection()[appData.dtypes.C].size > 1) {
-              <td>Ratio Plotter</td>
+              <td (click)="ratio_plotter()">Ratio Plotter</td>
             }
           </tr>
         </tbody>
@@ -91,13 +91,13 @@
       <table>
         <tbody>
           <tr>
-            <td>Analyze</td>
+            <td>Fit Peak</td>
             @if (appData.selection()[appData.dtypes.C].size == 1) {
               <td (click)="fetchMetadata(appData.dtypes.C)">Show Metadata</td>
             }
           </tr>
           <tr>
-            <td>Coinc S Param</td>
+            <td>Calc Line Shape Params</td>
             @if (appData.selection()[appData.dtypes.C].size == 1) {
               <td (click)="showSpectrum(appData.dtypes.C)">Show Spectrum</td>
             }

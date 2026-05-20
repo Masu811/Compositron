@@ -3,6 +3,7 @@ from typing import Any, TypedDict, Callable, Literal
 from dataclasses import dataclass, asdict
 
 import numpy as np
+from numpy.typing import NDArray
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
@@ -343,6 +344,10 @@ def show_singles(idcs: str):
     for i in parsed_idcs:
         x = x[i]
 
+    for s in x.singles:
+        if s.energies is None:
+            s.analyze()
+
     return JSONResponse([
         {
             "x": s.energies.tolist(),
@@ -481,6 +486,13 @@ def split(selection: Selection, args: GenericArgs):
     return JSONResponse([tree(t) for t in data])
 
 
+def safe_numpy(arr: NDArray):
+    if arr.ndim == 0:
+        return None if np.isnan(arr) else arr.item()
+    else:
+        return [safe_numpy(elem) for elem in arr]
+
+
 @app.post("/get")
 def get(selection: Selection, param: Param):
     kwargs = parse_targets_and_parsers([param])
@@ -498,15 +510,13 @@ def get(selection: Selection, param: Param):
             ]
         )
 
-    return JSONResponse(
-        [{
-            key: [None if np.isnan(val) else val for val in values.tolist()]
-            for key, values in foo.items()
-        } for foo in selected_data.get(
+    return JSONResponse([
+        {key: safe_numpy(values) for key, values in foo.items()}
+        for foo in selected_data.get(
             **kwargs,
             use_pd=False,
-        )]
-    )
+        )
+    ])
 
 
 @app.post("/merge")
@@ -573,3 +583,31 @@ def sum(selection: Selection, args: AvgArgs):
         )
 
     return JSONResponse([tree(t) for t in data])
+
+
+@dataclass
+class RatioPlotterArgs:
+    reference: str | int
+    comparands: None | list[str | int]
+    normalize_eres: bool
+    bins: float
+    bg_sub: bool
+    roi_width: None | float
+    mirrored: bool
+
+
+@app.post("/ratio_plotter")
+def ratio_plotter(selection: Selection, args: RatioPlotterArgs):
+    parsed_selection = parse_selection(selection)
+
+    mc_idcs = parsed_selection["MC"][0]
+
+    mc = data[mc_idcs[0]][mc_idcs[1]]
+
+    energies, ratios, dratios = mc.calc_ratio(**asdict(args))
+
+    return JSONResponse({
+        "energies": {det: safe_numpy(arr) for det, arr in energies.items()},
+        "ratios": {det: safe_numpy(arr) for det, arr in ratios.items()},
+        "dratios": {det: safe_numpy(arr) for det, arr in dratios.items()},
+    })

@@ -160,4 +160,9 @@ export class Toolbar {
     this.appData.dialogType.set("plot");
     this.appData.dialogOpen.set(true);
   }
+
+  ratio_plotter() {
+    this.appData.dialogType.set("ratio_plotter");
+    this.appData.dialogOpen.set(true);
+  }
 }
