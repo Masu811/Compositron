@@ -2,15 +2,8 @@ import { inject } from "@angular/core";
 import { FormBuilder, FormArray, FormGroup } from "@angular/forms";
 import { Router } from "@angular/router";
 
-import { parseSelection } from "../../../types";
+import { Param, parseSelection } from "../../../types";
 import { AppData } from "../../../app_data";
-import { Parser } from "./parsers/parser-arg-types";
-
-type Param = {
-  param: string,
-  target: "auto" | "DopplerMeasurement" | "SingleSpectrum" | "CoincidenceSpectrum",
-  parser: Parser,
-}
 
 export abstract class GenericCampaignDialog {
   abstract title: string;

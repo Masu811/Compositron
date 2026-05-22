@@ -1,15 +1,8 @@
 import { Component, inject } from "@angular/core";
 import { FormArray, ReactiveFormsModule, NonNullableFormBuilder } from "@angular/forms";
 import { AppData } from "../../../app_data";
-import { ParsedSelection, parseSelection, PlotAxes, PlotTrace } from "../../../types";
+import { Param, ParsedSelection, parseSelection, PlotAxes, PlotTrace } from "../../../types";
 import { Router } from "@angular/router";
-import { Parser } from "./parsers/parser-arg-types";
-
-type Param = {
-  param: string,
-  target: "auto" | "DopplerMeasurement" | "SingleSpectrum" | "CoincidenceSpectrum",
-  parser: Parser,
-}
 
 @Component({
   templateUrl: "plot.html",

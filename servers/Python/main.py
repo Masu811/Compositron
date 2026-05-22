@@ -487,10 +487,14 @@ def split(selection: Selection, args: GenericArgs):
 
 
 def safe_numpy(arr: NDArray):
-    if arr.ndim == 0:
+    if isinstance(arr, np.generic):
         return None if np.isnan(arr) else arr.item()
-    else:
+    elif isinstance(arr, str):
+        return arr
+    elif hasattr(arr, "__iter__"):
         return [safe_numpy(elem) for elem in arr]
+    else:
+        return None if np.isnan(arr) else arr
 
 
 @app.post("/get")
@@ -540,6 +544,37 @@ def merge(selection: Selection):
     filter_empty_mults()
 
     return JSONResponse([tree(t) for t in data])
+
+
+@dataclass
+class ClusterArgs:
+    params: list[Param]
+    method: str
+    clusters: list[list[float | None]]
+    n_clusters: None | int
+
+
+@app.post("/cluster")
+def cluster(selection: Selection, args: ClusterArgs):
+    parsed_selection = parse_selection(selection)
+    kwargs = asdict(args)
+
+    kwargs.pop("params")
+    kwargs.update(parse_targets_and_parsers(args.params))
+
+    clusters = kwargs.pop("clusters")
+    n_clusters = kwargs.pop("n_clusters")
+    method = kwargs.pop("method")
+
+    if method == "n_clusters":
+        kwargs["n_clusters"] = n_clusters
+    elif method == "clusters":
+        kwargs["clusters"] = np.array(clusters, ndmin=2).T
+    elif method == "guess":
+        kwargs["guess"] = np.array(clusters, ndmin=2).T
+
+    for mc_idcs in parsed_selection["MC"]:
+        data[mc_idcs[0]][mc_idcs[1]].cluster(**kwargs)
 
 
 @dataclass

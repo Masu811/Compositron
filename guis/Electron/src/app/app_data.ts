@@ -1,6 +1,5 @@
 import { Injectable, signal, computed } from "@angular/core";
-import { MultiCampaign, Dtype, DtypeToggle, DtypeSelection, Metadata, PlotTrace, PlotAxes } from "./types";
-import { Parser } from "./workspace/dialogs/dialogs/parsers/parser-arg-types";
+import { MultiCampaign, Dtype, DtypeToggle, DtypeSelection, Metadata, PlotTrace, PlotAxes, Parser } from "./types";
 
 @Injectable({ providedIn: "root" })
 export class AppData {

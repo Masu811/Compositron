@@ -146,6 +146,11 @@ export class Toolbar {
     this.appData.data.set(newData);
   }
 
+  cluster() {
+    this.appData.dialogType.set("cluster");
+    this.appData.dialogOpen.set(true);
+  }
+
   average() {
     this.appData.dialogType.set("average");
     this.appData.dialogOpen.set(true);

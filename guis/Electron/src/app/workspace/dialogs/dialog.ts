@@ -12,6 +12,7 @@ import { PlotDialog } from "./dialogs/plot";
 import { AverageDialog } from "./dialogs/average";
 import { SumDialog } from "./dialogs/sum";
 import { RatioPlotterDialog } from "./dialogs/ratio_plotter";
+import { ClusterDialog } from "./dialogs/cluster";
 
 @Component({
   selector: "custom-dialog",
@@ -34,6 +35,8 @@ export class Dialog {
         return SortDialog;
       case "split":
         return SplitDialog;
+      case "cluster":
+        return ClusterDialog;
       case "average":
         return AverageDialog;
       case "sum":

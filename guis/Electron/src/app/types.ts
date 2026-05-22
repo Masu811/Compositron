@@ -72,6 +72,18 @@ export function parseSelection(selection: DtypeSelection): ParsedSelection {
   return parsed_selection;
 }
 
+export type Parser = {
+  name: string,
+  args: { [key: string]: string },
+  repr: string,
+}
+
+export type Param = {
+  param: string,
+  target: "auto" | "DopplerMeasurement" | "SingleSpectrum" | "CoincidenceSpectrum",
+  parser: Parser,
+}
+
 export type PlotTrace = Partial<Data>
 
 export type PlotLayout = Partial<Layout>

@@ -1,4 +1,5 @@
 import { FormControl, FormGroup, Validators } from "@angular/forms";
+import { Parser } from "../../../../types";
 
 export class ParserFormElement {
   value: string | undefined;
@@ -49,12 +50,6 @@ export class ParserSelectArg extends ParserFormElement {
 
 export class ParserArgContext extends ParserFormElement {
   override controlType = "span";
-}
-
-export type Parser = {
-  name: string,
-  args: { [key: string]: string },
-  repr: string,
 }
 
 export class ParserUI {
