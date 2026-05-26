@@ -1,7 +1,7 @@
 use cstacs::importer::n42_importer::import_n42;
 
 fn main() -> anyhow::Result<()> {
-    let mut m = import_n42("examples/data/depth-profile_Copper_0000.n42")?;
+    let mut m = import_n42("../../../testdata/depth-profile_Copper_0000.n42")?;
 
     println!("{}", m.shape());
 

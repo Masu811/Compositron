@@ -4,7 +4,7 @@
 #include <stacs/stacs.hpp>
 
 int main() {
-    std::string filename("./testdata/CDB_spectra_WRe-Alloys_0000.n42");
+    std::string filename("../../../testdata/depth-profile_Copper_0000.n42");
 
     DopplerMeasurement m(filename);
 
