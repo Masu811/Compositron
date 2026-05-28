@@ -1,6 +1,0 @@
-importer:
-    libxml2-dev
-single, coinc:
-    libgsl
-tests:
-    criterion
