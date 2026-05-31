@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+png = "0.18.1"
+roxmltree = "0.21.1"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+anyhow = "1.0.102"
