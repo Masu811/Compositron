@@ -9,17 +9,15 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 
 ## Roadmap
 
-The implementation of the steps below will happen for the different languages in parallel.
-
-- [ ] Classes and structs
-- [ ] Importers for real data
-- [ ] DBS module
-- [ ] PALS module
-- [ ] Core module
-- [ ] Depth Profiling module
-- [ ] CDBS module
-- [ ] AMOC module
-- [ ] ACAR module
+| Feature              | Rust  | C++   | Julia | Python |
+| :---                 | :---: | :---: | :---: | :---:  |
+| SLOPE importer       | [ ]   | [x]   | [ ]   | [ ]    |
+| DBS analysis         | [ ]   | [ ]   | [ ]   | [ ]    |
+| MePS importer        | [ ]   | [ ]   | [ ]   | [ ]    |
+| PALS analysis        | [ ]   | [ ]   | [ ]   | [ ]    |
+| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    |
+| CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    |
+| Profile analysis     | [ ]   | [ ]   | [ ]   | [ ]    |
 
 ## Architectures
 

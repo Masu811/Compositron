@@ -1,2 +1,1 @@
-cores/common_includes/* linguist-vendored
-cores/C++/src/rapidxml* linguist-vendored
+cores/C++/compositron/include/compositron/importers/third_party linguist-vendored
