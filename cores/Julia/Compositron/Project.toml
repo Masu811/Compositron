@@ -2,3 +2,13 @@ name = "Compositron"
 uuid = "e351efd7-3ccf-4eb2-be79-6cdbdb75d976"
 version = "0.1.0"
 authors = ["Maximilian Suhr <ge96quf@mytum.de>"]
+
+[deps]
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+LightXML = "9c8b4983-aa76-5018-a973-4c85ecc9e179"
+PNGFiles = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
+
+[compat]
+DataStructures = "0.19.4"
+LightXML = "0.9.3"
+PNGFiles = "0.4.5"
