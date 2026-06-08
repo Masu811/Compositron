@@ -2,7 +2,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 extern "C" {
-    #include "compositron/importers/third_party/stb_image.h"
+    #include "compositron/importers/vendored/stb_image.h"
 }
 
 #include <vector>

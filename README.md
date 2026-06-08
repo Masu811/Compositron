@@ -9,15 +9,15 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 
 ## Roadmap
 
-| Feature              | Rust  | C++   | Julia | Python |
-| :---                 | :---: | :---: | :---: | :---:  |
-| SLOPE importer       | [x]   | [x]   | [x]   | [x]    |
-| DBS analysis         | [ ]   | [ ]   | [ ]   | [ ]    |
-| MePS importer        | [ ]   | [ ]   | [ ]   | [ ]    |
-| PALS analysis        | [ ]   | [ ]   | [ ]   | [ ]    |
-| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    |
-| CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    |
-| Profile analysis     | [ ]   | [ ]   | [ ]   | [ ]    |
+| Feature              | Rust  | C++   | Julia | Python | C     |
+| :---                 | :---: | :---: | :---: | :---:  | :---: |
+| SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
+| DBS analysis         | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| MePS importer        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| PALS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| Profile analysis     | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 
 ## Architectures
 
@@ -27,6 +27,7 @@ Currently, the project is being developed in the following programming languages
 - C++
 - Julia
 - Rust
+- C
 
 Since core library and GUI are not generally of the same language, an extra interface layer is needed for interoperability.
 There are different ways to do that, and (if time allows) they will all be implemented in this project to benchmark them against each other:

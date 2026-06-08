@@ -5,8 +5,8 @@
 #include "compositron/dbs/dbspectrum.hpp"
 #include "compositron/cdbs/cdbspectrum.hpp"
 #include "compositron/importers/png_importer.hpp"
-#include "compositron/importers/third_party/rapidxml.hpp"
-#include "compositron/importers/third_party/rapidxml_utils.hpp"
+#include "compositron/importers/vendored/rapidxml.hpp"
+#include "compositron/importers/vendored/rapidxml_utils.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -357,7 +357,7 @@ void import_dbspectrum(
 
     auto ecal_id = spectrum_node->first_attribute("energyCalibrationReference");
 
-    if (det_id == nullptr) {
+    if (ecal_id == nullptr) {
         throw std::runtime_error(
             "Could not find attribute 'energyCalibrationReference' "
             "in node 'Spectrum'"
