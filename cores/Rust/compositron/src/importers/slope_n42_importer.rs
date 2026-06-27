@@ -470,7 +470,7 @@ fn import_dbspectrum(
 
     let spectrum = parse_spectrum(spectrum_node)?;
 
-    m.dbs.insert(detname.clone(), DBSpectrum::new(spectrum, detname, ecal));
+    m.dbs.insert(detname.clone(), DBSpectrum::new(spectrum, detname, ecal, None));
 
     Ok(())
 }

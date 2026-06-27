@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+nalgebra = "0.34.2"
 png = "0.18.1"
 roxmltree = "0.21.1"
+statrs = "0.18.0"
 thiserror = "2.0.18"
+varpro = "0.14.0"
 
 [dev-dependencies]
 anyhow = "1.0.102"

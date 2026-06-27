@@ -1,4 +1,4 @@
 pub mod utils;
 
-mod measurement;
+pub mod measurement;
 pub use measurement::Measurement;

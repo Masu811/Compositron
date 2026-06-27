@@ -1,3 +1,27 @@
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum FitError {
+    #[error("Data contains only NaN values")]
+    AllNANValues,
+
+    #[error("ModelBuilderError")]
+    ModelBuilderError {
+        #[from]
+        inner: varpro::model::builder::error::ModelBuildError,
+    },
+
+    #[error("SeparableProblemBuilderError")]
+    SeparableProblemBuilderError {
+        #[from]
+        inner: varpro::problem::SeparableProblemBuilderError,
+    },
+
+    #[error("Something went wrong during least squares fit")]
+    RuntimeError,
+}
+
+
 pub enum Spectrum {
     U8(Vec<u8>),
     U16(Vec<u16>),
@@ -134,4 +158,30 @@ pub struct Spectrum2D {
     pub width: usize,
     pub height: usize,
     pub data: Spectrum,
+}
+
+pub trait LossyIntoF64: Copy { fn lossy_into_f64(x: Self) -> f64; }
+
+impl LossyIntoF64 for u8 {
+    fn lossy_into_f64(x: u8) -> f64 { x as f64 }
+}
+
+impl LossyIntoF64 for u16 {
+    fn lossy_into_f64(x: u16) -> f64 { x as f64 }
+}
+
+impl LossyIntoF64 for u32 {
+    fn lossy_into_f64(x: u32) -> f64 { x as f64 }
+}
+
+impl LossyIntoF64 for u64 {
+    fn lossy_into_f64(x: u64) -> f64 { x as f64 }
+}
+
+impl LossyIntoF64 for f32 {
+    fn lossy_into_f64(x: f32) -> f64 { x as f64 }
+}
+
+impl LossyIntoF64 for f64 {
+    fn lossy_into_f64(x: f64) -> f64 { x }
 }

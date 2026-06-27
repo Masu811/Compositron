@@ -1,8 +1,33 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display};
 
-use crate::importers::slope_n42_importer::{import_n42, ImportError};
+use thiserror::Error;
+
+use crate::importers::slope_n42_importer::{self, import_n42};
 use crate::{cdbs::CDBSpectrum, dbs::DBSpectrum};
+
+#[derive(Debug, Error)]
+pub enum ImportError {
+    #[error("Error during data import")]
+    SlopeN42ImportError {
+        #[from]
+        source: slope_n42_importer::ImportError,
+    },
+
+    #[error("Error during data import")]
+    CustomImporterError {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DataFormat {
+    SlopeN42,
+    Custom {
+        importer: fn (&str) -> Result<Measurement, Box<dyn std::error::Error + Send + Sync>>,
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Shape {
@@ -12,7 +37,9 @@ pub struct Shape {
 
 impl Display for Shape {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Shape(dbs={}, cdbs={})", self.dbs, self.cdbs)
+        write!(
+            f, "Shape(dbs={}, cdbs={})", self.dbs, self.cdbs,
+        )
     }
 }
 
@@ -35,8 +62,15 @@ impl Measurement {
         }
     }
 
-    pub fn import(&mut self, filepath: &str) -> Result<(), ImportError> {
-        let m = import_n42(filepath)?;
+    pub fn import(
+        &mut self, filepath: &str, format: DataFormat
+    ) -> Result<(), ImportError> {
+        let m = match format {
+            DataFormat::SlopeN42 => import_n42(filepath)?,
+            DataFormat::Custom { importer } => importer(filepath).map_err(
+                |err| ImportError::CustomImporterError { source: err }
+            )?
+        };
 
         self.filename = Some(filepath.into());
         self.name = self.filename.clone();
