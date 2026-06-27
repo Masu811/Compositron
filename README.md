@@ -12,8 +12,8 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 | Feature              | Rust  | C++   | Julia | Python | C     |
 | :---                 | :---: | :---: | :---: | :---:  | :---: |
 | SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
-| DBS analysis         | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| MePS importer        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| DBS analysis         | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| MePS importer        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | PALS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |

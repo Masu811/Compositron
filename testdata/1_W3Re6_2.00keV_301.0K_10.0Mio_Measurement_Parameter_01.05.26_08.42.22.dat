@@ -1,0 +1,49 @@
+Date                         01.05.26
+Time                         08.42.22
+Projekt Name                 1_W3Re6_2.00keV_301.0K_10.0Mio
+Author                       Hirschmann
+Sample                       YSZ
+Source                       ELBE
+Notes                        Beamtime-11-2025
+Path                         /hzdr/files/share/fwk/EPOS/MePS/Measurements/2026-04/26103936-Lisa-MarieKrug/1-W3Re6
+Time-Range in ns             380
+Channel-Dispersion in ns     0.003
+Measured Time in s           438.699
+Global Count-Rate in 1/s     22797.6
+Global Statistic             10001264
+Global Super Single Ratio    0
+-----------------------------
+PMT                          0
+PMT Typ                      MINT
+PMT Scintillator             No
+PMT Voltage in V             0
+PMT Attanuation in dB        0
+PMT Threshold in V           0.3
+PMT CF-Level in %%            0.5
+PMT EtoV                     1
+PMT Window autotuned         NO
+PMT Stop-Winodw in V         2 - 2
+PMT Start-Window in V        0.6 - 0.9
+-----------------------------
+PMT                          1
+PMT Typ                      R13089
+PMT Scintillator             CeBr3 1''2''
+PMT Voltage in V             1500
+PMT Attanuation in dB        6
+PMT Threshold in V           0.15
+PMT CF-Level in %%            0.05
+PMT EtoV                     0.000977221
+PMT Window autotuned         YES
+PMT Stop-Winodw in keV       320 - 650
+PMT Start-Window in keV      200 - 200
+PMT Energy Filter Ratio in %% 0
+-----------------------------
+Spectrum Nr                  0
+Spectrum Statistic           10001264
+Spectrum Count-Rate          22797.6
+Spectrum Center in ps        -182.894
+Spectrum Maximum             70305
+Spectrum FWHM in ps          354
+Spectrum FWXM in ps          816
+Spectrum Peak Pos Stop in V  0
+Spectrum Peak FWHM Stop in V 0
