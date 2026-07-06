@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::dbs::fitting::{self, Param};
 use crate::core::utils::{spectrum_match, LossyIntoF64, Spectrum};
+use crate::core::fitting;
+use crate::dbs::fitting::*;
 use crate::M_E_KEV;
 
 // NOTE:
@@ -170,7 +171,7 @@ pub struct DBSpectrum {
     pub peak_bnds: Option<(usize, usize)>,
     pub peak_counts: f64,
     pub dpeak_counts: f64,
-    pub peak_params: HashMap<&'static str, Param>,
+    pub peak_params: HashMap<&'static str, fitting::SimpleFitParam>,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
 
@@ -247,16 +248,16 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::Gauss => {
-                self.peak_params = fitting::fit_gaussian(&x, &y)?;
+                self.peak_params = fit_gaussian(&x, &y)?;
             },
             PeakModel::ErfLinear1Gauss => {
-                self.peak_params = fitting::fit_erf_linear_1_gauss(&x, &y)?;
+                self.peak_params = fit_erf_linear_1_gauss(&x, &y)?;
             },
             PeakModel::ErfLinear2Gauss => {
-                self.peak_params = fitting::fit_erf_linear_2_gauss(&x, &y)?;
+                self.peak_params = fit_erf_linear_2_gauss(&x, &y)?;
             },
             PeakModel::ErfLinear3Gauss => {
-                self.peak_params = fitting::fit_erf_linear_3_gauss(&x, &y)?;
+                self.peak_params = fit_erf_linear_3_gauss(&x, &y)?;
             },
         }
 
@@ -271,7 +272,7 @@ impl DBSpectrum {
         let x = self.get_peak_energies();
         let y = self.peak.as_mut().unwrap();
 
-        let corr = fitting::background(
+        let corr = background(
             &x,
             self.peak_params.get("erf_amp").unwrap().val,
             self.peak_params.get("x0_1").unwrap().val,

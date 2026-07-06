@@ -2,45 +2,11 @@ use std::collections::HashMap;
 
 use nalgebra::DVector;
 use statrs::function::erf::erf;
-use thiserror::Error;
 use varpro::prelude::*;
 use varpro::problem::*;
 use varpro::solvers::levmar::LevMarSolver;
 
-const TWO_OVER_SQRT_PI: f64 = 1.1283791670955126;
-
-#[derive(Debug, Error)]
-pub enum FitError {
-    #[error("Data contains only NaN values")]
-    AllNANValues,
-
-    #[error("ModelBuilderError")]
-    ModelBuilderError {
-        #[from]
-        inner: varpro::model::builder::error::ModelBuildError,
-    },
-
-    #[error("SeparableProblemBuilderError")]
-    SeparableProblemBuilderError {
-        #[from]
-        inner: varpro::problem::SeparableProblemBuilderError,
-    },
-
-    #[error("StatisticsError")]
-    StatisticsError {
-        #[from]
-        inner: varpro::statistics::Error<varpro::model::errors::ModelError>,
-    },
-
-    #[error("Something went wrong during least squares fit")]
-    RuntimeError,
-}
-
-#[derive(Debug)]
-pub struct Param {
-    pub val: f64,
-    pub err: f64,
-}
+use crate::core::fitting::{FitError, SimpleFitParam, TWO_OVER_SQRT_PI};
 
 fn gauss_basis(
     x: &DVector<f64>, x0: f64, sig: f64
@@ -71,7 +37,7 @@ fn gaussian_dsig(
 
 pub fn fit_gaussian(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, Param>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
         .function(&["x0", "sig"], gauss_basis)
         .partial_deriv("x0", gaussian_dx0)
@@ -100,11 +66,11 @@ pub fn fit_gaussian(
 
     let errs = cov.diagonal().map(|x| x.sqrt());
 
-    let mut params = HashMap::<&'static str, Param>::new();
+    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
 
-    params.insert("amp_1", Param { val: lin[0], err: errs[0] });
-    params.insert("x0_1", Param { val: nonlin[0], err: errs[1] });
-    params.insert("sig_1", Param { val: nonlin[1], err: errs[1] });
+    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
+    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[1] });
+    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[1] });
 
     Ok(params)
 }
@@ -150,7 +116,7 @@ fn const_basis(x: &DVector<f64>) -> DVector<f64> {
 /// erf amp, linear coeff, const coeff
 pub fn fit_erf_linear_1_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, Param>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
         .function(&["x0", "sig"], gauss_basis)
         .partial_deriv("x0", gaussian_dx0)
@@ -190,21 +156,21 @@ pub fn fit_erf_linear_1_gauss(
 
     let errs = cov.diagonal().map(|x| x.sqrt());
 
-    let mut params = HashMap::<&'static str, Param>::new();
+    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
 
-    params.insert("amp_1", Param { val: lin[0], err: errs[0] });
-    params.insert("x0_1", Param { val: nonlin[0], err: errs[4] });
-    params.insert("sig_1", Param { val: nonlin[1], err: errs[5] });
-    params.insert("erf_amp", Param { val: lin[1], err: errs[1] });
-    params.insert("lin", Param { val: lin[2], err: errs[2] });
-    params.insert("const", Param { val: lin[3], err: errs[3] });
+    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
+    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[4] });
+    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[5] });
+    params.insert("erf_amp", SimpleFitParam { val: lin[1], err: errs[1] });
+    params.insert("lin", SimpleFitParam { val: lin[2], err: errs[2] });
+    params.insert("const", SimpleFitParam { val: lin[3], err: errs[3] });
 
     Ok(params)
 }
 
 pub fn fit_erf_linear_2_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, Param>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
     let model = SeparableModelBuilder::<f64>::new(
             &["x0_1", "sig_1", "x0_2", "sig_2"]
         )
@@ -249,24 +215,24 @@ pub fn fit_erf_linear_2_gauss(
 
     let errs = cov.diagonal().map(|x| x.sqrt());
 
-    let mut params = HashMap::<&'static str, Param>::new();
+    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
 
-    params.insert("amp_1", Param { val: lin[0], err: errs[0] });
-    params.insert("x0_1", Param { val: nonlin[0], err: errs[5] });
-    params.insert("sig_1", Param { val: nonlin[1], err: errs[6] });
-    params.insert("amp_2", Param { val: lin[1], err: errs[1] });
-    params.insert("x0_2", Param { val: nonlin[2], err: errs[7] });
-    params.insert("sig_2", Param { val: nonlin[3], err: errs[8] });
-    params.insert("erf_amp", Param { val: lin[2], err: errs[2] });
-    params.insert("lin", Param { val: lin[3], err: errs[3] });
-    params.insert("const", Param { val: lin[4], err: errs[4] });
+    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
+    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[5] });
+    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[6] });
+    params.insert("amp_2", SimpleFitParam { val: lin[1], err: errs[1] });
+    params.insert("x0_2", SimpleFitParam { val: nonlin[2], err: errs[7] });
+    params.insert("sig_2", SimpleFitParam { val: nonlin[3], err: errs[8] });
+    params.insert("erf_amp", SimpleFitParam { val: lin[2], err: errs[2] });
+    params.insert("lin", SimpleFitParam { val: lin[3], err: errs[3] });
+    params.insert("const", SimpleFitParam { val: lin[4], err: errs[4] });
 
     Ok(params)
 }
 
 pub fn fit_erf_linear_3_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, Param>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
     let model = SeparableModelBuilder::<f64>::new(
             &["x0_1", "sig_1", "x0_2", "sig_2", "x0_3", "sig_3"]
         )
@@ -314,20 +280,20 @@ pub fn fit_erf_linear_3_gauss(
 
     let errs = cov.diagonal().map(|x| x.sqrt());
 
-    let mut params = HashMap::<&'static str, Param>::new();
+    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
 
-    params.insert("amp_1", Param { val: lin[0], err: errs[0] });
-    params.insert("x0_1", Param { val: nonlin[0], err: errs[6] });
-    params.insert("sig_1", Param { val: nonlin[1], err: errs[7] });
-    params.insert("amp_2", Param { val: lin[1], err: errs[1] });
-    params.insert("x0_2", Param { val: nonlin[2], err: errs[8] });
-    params.insert("sig_2", Param { val: nonlin[3], err: errs[9] });
-    params.insert("amp_3", Param { val: lin[2], err: errs[2] });
-    params.insert("x0_3", Param { val: nonlin[2], err: errs[10] });
-    params.insert("sig_3", Param { val: nonlin[3], err: errs[11] });
-    params.insert("erf_amp", Param { val: lin[3], err: errs[3] });
-    params.insert("lin", Param { val: lin[4], err: errs[4] });
-    params.insert("const", Param { val: lin[5], err: errs[5] });
+    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
+    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[6] });
+    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[7] });
+    params.insert("amp_2", SimpleFitParam { val: lin[1], err: errs[1] });
+    params.insert("x0_2", SimpleFitParam { val: nonlin[2], err: errs[8] });
+    params.insert("sig_2", SimpleFitParam { val: nonlin[3], err: errs[9] });
+    params.insert("amp_3", SimpleFitParam { val: lin[2], err: errs[2] });
+    params.insert("x0_3", SimpleFitParam { val: nonlin[2], err: errs[10] });
+    params.insert("sig_3", SimpleFitParam { val: nonlin[3], err: errs[11] });
+    params.insert("erf_amp", SimpleFitParam { val: lin[3], err: errs[3] });
+    params.insert("lin", SimpleFitParam { val: lin[4], err: errs[4] });
+    params.insert("const", SimpleFitParam { val: lin[5], err: errs[5] });
 
     Ok(params)
 }

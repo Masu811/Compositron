@@ -271,8 +271,8 @@ fn import_palspectrum(filepath: &PathBuf, m: &mut Measurement) -> Result<PALSpec
     let spectrum = import_spectrum_data(&channel_data)?;
 
     Ok(PALSpectrum::new(
-        spectrum, "A".into(), (0., header_info.bin_width), None, None, false
-    ).unwrap())
+        spectrum, "A".into(), (0., 1000. * header_info.bin_width)
+    ))
 }
 
 fn import_params(filepath: &PathBuf, m: &mut Measurement) {

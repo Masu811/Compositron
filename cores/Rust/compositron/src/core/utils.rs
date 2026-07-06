@@ -29,13 +29,14 @@ pub enum Spectrum {
     U64(Vec<u64>),
 }
 
+#[macro_export]
 macro_rules! spectrum_match {
     ($s:expr, $v:ident => $body:expr) => {
         match $s {
-            Spectrum::U8($v) => $body,
-            Spectrum::U16($v) => $body,
-            Spectrum::U32($v) => $body,
-            Spectrum::U64($v) => $body,
+            $crate::core::utils::Spectrum::U8($v) => $body,
+            $crate::core::utils::Spectrum::U16($v) => $body,
+            $crate::core::utils::Spectrum::U32($v) => $body,
+            $crate::core::utils::Spectrum::U64($v) => $body,
         }
     };
 }
