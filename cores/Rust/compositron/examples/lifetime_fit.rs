@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
     let s = m.pals.get("A").unwrap();
 
     let y = compositron::spectrum_match!(
-        &s.spectrum, arr => arr[16500..17000].iter().map(|&x| x as f64).collect::<Vec<f64>>()
+        &s.spectrum, arr => arr[16500..18000].iter().map(|&x| x as f64).collect::<Vec<f64>>()
     );
 
     let x = (0..y.len()).map(|i| i as f64 * s.tcal.1 + s.tcal.0).collect::<Vec<f64>>();

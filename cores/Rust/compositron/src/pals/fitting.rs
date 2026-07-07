@@ -250,7 +250,7 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
                 });
 
                 let exp_comb = DVector::from_fn(a.len(), |i, _| {
-                    n * 0.5 * l_int * r_int * one_over_tau_sqrt_2_pi
+                    n * l_int * r_int * one_over_tau_sqrt_2_pi
                         * (a[i] - b[i].powi(2)).exp()
                 });
 
@@ -261,7 +261,7 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
                 let df_dt0 = -&exp_comb / sig + &decay / tau;
                 let df_dtau = &exp_comb * sig / tau.powi(2)
                     + &decay.component_mul(&(&tt / tau.powi(2)).add_scalar(
-                        sig.powi(2) / tau.powi(3) - one_over_tau
+                        -sig.powi(2) / tau.powi(3) - one_over_tau
                     ));
                 let df_dsig = &decay * sig / tau.powi(2)
                     - &exp_comb.component_mul(
@@ -374,9 +374,6 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
             j.set_column(
                 i,
                 &(
-                    // -derivatives.get(param.into()).unwrap().component_mul(
-                    //     &(&self.w * self.diffs[i](self.p[i], self.params[i]))
-                    // )
                     -derivatives.get(param.into()).unwrap().component_mul(
                         &(&self.w * self.diffs[i](self.p[i], self.params[i]))
                     )
@@ -443,28 +440,34 @@ struct ProblemTemplate<'a> {
     diffs: Vec<fn (f64, &FitParam) -> f64>,
 }
 
-fn gobble<'a>(
-    name: String,
-    param: &'a FitParam,
-    tmp: &mut ProblemTemplate<'a>,
-    is_l_intensity: bool,
-    is_r_intensity: bool,
-) {
-    if param.vary {
-        tmp.transformed_params.push(param.val);
-        tmp.param_types.push(ParamType::Varied(tmp.transformed_params.len() - 1));
-        tmp.varied_param_names.push(name);
-        tmp.params.push(param);
-        tmp.transforms.push(param.transform);
-        tmp.backtransforms.push(param.backtransform);
-        tmp.diffs.push(param.diff);
-    } else {
-        tmp.fixed_params.push(param.val);
-        tmp.param_types.push(ParamType::Fixed(tmp.fixed_params.len() - 1));
-        if is_l_intensity {
-            tmp.available_l_intensity -= param.val;
-        } else if is_r_intensity {
-            tmp.available_r_intensity -= param.val;
+impl<'a> ProblemTemplate<'a> {
+    fn gobble(
+        &mut self,
+        name: String,
+        param: &'a FitParam,
+        is_l_intensity: bool,
+        is_r_intensity: bool,
+    ) {
+        if param.vary {
+            self.transformed_params.push(param.val);
+            self.param_types.push(
+                ParamType::Varied(self.transformed_params.len() - 1)
+            );
+            self.varied_param_names.push(name);
+            self.params.push(param);
+            self.transforms.push(param.transform);
+            self.backtransforms.push(param.backtransform);
+            self.diffs.push(param.diff);
+        } else {
+            self.fixed_params.push(param.val);
+            self.param_types.push(
+                ParamType::Fixed(self.fixed_params.len() - 1)
+            );
+            if is_l_intensity {
+                self.available_l_intensity -= param.val;
+            } else if is_r_intensity {
+                self.available_r_intensity -= param.val;
+            }
         }
     }
 }
@@ -492,24 +495,24 @@ fn build_problem<'a>(
         diffs: Vec::new(),
     };
 
-    gobble("N".into(), &model.scale_component, &mut tmp, false, false);
-    gobble("background".into(), &model.background_component, &mut tmp, false, false);
-    gobble("t0".into(), &model.shift_component, &mut tmp, false, false);
+    tmp.gobble("N".into(), &model.scale_component, false, false);
+    tmp.gobble("background".into(), &model.background_component, false, false);
+    tmp.gobble("t0".into(), &model.shift_component, false, false);
 
     for i in 0..n_l {
         let c = &model.lifetime_components[i];
-        gobble(format!("lifetime_{}", i + 1), &c.lifetime, &mut tmp, false, false);
-        gobble(format!("intensity_{}", i + 1), &c.intensity, &mut tmp, true, false);
+        tmp.gobble(format!("lifetime_{}", i + 1), &c.lifetime, false, false);
+        tmp.gobble(format!("intensity_{}", i + 1), &c.intensity, true, false);
     }
 
     for i in 0..n_r {
         let c = &model.resolution_components[i];
-        gobble(format!("res_fwhm_{}", i + 1), &c.fwhm, &mut tmp, false, false);
-        gobble(format!("res_intensity_{}", i + 1), &c.intensity, &mut tmp, false, true);
-        gobble(format!("res_t0_{}", i + 1), &c.t0, &mut tmp, false, false);
+        tmp.gobble(format!("res_fwhm_{}", i + 1), &c.fwhm, false, false);
+        tmp.gobble(format!("res_intensity_{}", i + 1), &c.intensity, false, true);
+        tmp.gobble(format!("res_t0_{}", i + 1), &c.t0, false, false);
     }
 
-    let mut problem = Problem {
+    let problem = Problem {
         x: DVector::from_column_slice(x),
         y: DVector::from_column_slice(y),
         p: DVector::from_element(tmp.transformed_params.len(), f64::NAN),
@@ -530,19 +533,46 @@ fn build_problem<'a>(
         diffs: tmp.diffs,
     };
 
-    problem.set_init();
-    problem.make_intensities();
-
     problem
 }
 
-fn prepare_fit(model: LifetimeModel) -> LifetimeModel {
+fn prepare_fit(model: &mut LifetimeModel) -> (Option<usize>, Option<usize>) {
     // Make initial guesses for missing parameters
     //
     // Slap on necessary boundaries
     //
     // Set Last Varied Intensity
-    model
+
+    let n_l = model.lifetime_components.len();
+    let n_r = model.resolution_components.len();
+
+    let mut last_l_vary_idx = None;
+
+    for i in 1..=n_l {
+        let l_int_idx = n_l - i;
+        let param = &mut model.lifetime_components[l_int_idx].intensity;
+        if param.vary {
+            last_l_vary_idx = Some(l_int_idx);
+            param.val = 0.;
+            param.vary = false;
+            break;
+        }
+    }
+
+    let mut last_r_vary_idx = None;
+
+    for i in 1..=n_r {
+        let r_int_idx = n_r - i;
+        let param = &mut model.resolution_components[r_int_idx].intensity;
+        if param.vary {
+            last_r_vary_idx = Some(r_int_idx);
+            param.val = 0.;
+            param.vary = false;
+            break;
+        }
+    }
+
+    (last_l_vary_idx, last_r_vary_idx)
 }
 
 fn post_fit(model: LifetimeModel) -> LifetimeModel {
@@ -558,48 +588,26 @@ pub struct FitResult {
     n_eval: usize,
     chi_2: Option<f64>,
     cov: Option<DMatrix<f64>>,
+    res: Option<DVector<f64>>,
 }
 
 pub fn fit_lifetime_spectrum(
-    x: &[f64], y: &[f64], model: LifetimeModel
+    x: &[f64], y: &[f64], mut model: LifetimeModel
 ) -> Result<FitResult, FitError> {
+    let (last_l_vary_idx, last_r_vary_idx) = prepare_fit(&mut model);
+
     let mut problem = build_problem(x, y, &model);
 
-    let jacobian_trait = problem.jacobian().unwrap();
-    let jacobian_numerical = differentiate_numerically(&mut problem).unwrap();
-
-    let nrows = jacobian_numerical.nrows();
-    let ncols = jacobian_numerical.ncols();
-
-    // let diff = jacobian_numerical - jacobian_trait;
-
-    let mut file = BufWriter::new(File::create("num.csv").unwrap());
-
-    for i in 0..nrows {
-        for j in 0..ncols {
-            if j > 0 {
-                write!(file, ",").unwrap();
-            }
-            write!(file, "{}", jacobian_numerical[(i, j)]).unwrap();
-        }
-        writeln!(file).unwrap();
+    if let Some(idx) = last_l_vary_idx {
+        problem.param_types[3 + 2 * idx + 1] = ParamType::LastVariedIntensity(0);
     }
 
-    /////
-
-    let mut file = BufWriter::new(File::create("ana.csv").unwrap());
-
-    for i in 0..nrows {
-        for j in 0..ncols {
-            if j > 0 {
-                write!(file, ",").unwrap();
-            }
-            write!(file, "{}", jacobian_trait[(i, j)]).unwrap();
-        }
-        writeln!(file).unwrap();
+    if let Some(idx) = last_r_vary_idx {
+        problem.param_types[3 + 2 * problem.n_l + 3 * idx + 1] = ParamType::LastVariedIntensity(0);
     }
 
-    panic!();
+    problem.set_init();
+    problem.make_intensities();
 
     let (problem, report) = LevenbergMarquardt::new().minimize(problem);
 
@@ -612,7 +620,7 @@ pub fn fit_lifetime_spectrum(
         Some(chi2) => compute_covariance(&problem, chi2)
     };
 
-    let std_err = match cov {
+    let std_err = match &cov {
         None => None,
         Some(c) => Some(c.diagonal().map(|v| v.sqrt())),
     };
@@ -642,5 +650,6 @@ pub fn fit_lifetime_spectrum(
         n_eval: report.number_of_evaluations,
         chi_2: red_chi2,
         cov: cov,
+        res: None,
     })
 }

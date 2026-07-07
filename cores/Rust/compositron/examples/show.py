@@ -13,11 +13,9 @@ names = [
     "lifetime_2",
     "intensity_2",
     "lifetime_3",
-    "intensity_3",
     "res_fwhm_1",
     "res_intensity_1",
     "res_fwhm_2",
-    "res_intensity_2",
     "res_t0_2",
 ]
 
@@ -26,13 +24,11 @@ for i, name in enumerate(names):
     y = num[i]
     z = py[i]
 
-    fig, axs = plt.subplots(1, 2)
+    plt.title(name)
 
-    fig.suptitle(name)
-
-    axs[0].plot(x)
-    axs[0].plot(y)
-
-    axs[1].plot(z)
+    plt.plot(x, label="ana")
+    plt.plot(y, label="num")
+    plt.plot(z, label="py")
+    plt.legend()
 
     plt.show()

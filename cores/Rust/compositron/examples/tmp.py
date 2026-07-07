@@ -3,7 +3,7 @@ from pypalsfit import LifetimeMeasurement
 lt_model = {
     "N": (1e6, 0),
     "background": (0, False),
-    "t0": (500),
+    "t0": (500 + 3 * 16500),
     "lifetime_1": (180, 100, 5000),
     "intensity_1": (0.79, 0, 1),
     "lifetime_2": (350, 100, 5000),
@@ -24,5 +24,5 @@ s = LifetimeMeasurement(
     verbose=True,
     calibrate=True,
     fit_start_idx=16500,
-    fit_end_idx=17000,
+    fit_end_idx=18000,
 )
