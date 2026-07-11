@@ -248,7 +248,7 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::Gauss => {
-                self.peak_params = fit_gaussian(&x, &y)?;
+                self.peak_params = fit_gaussian(&x, &y, vec![511., 1.])?;
             },
             PeakModel::ErfLinear1Gauss => {
                 self.peak_params = fit_erf_linear_1_gauss(&x, &y)?;

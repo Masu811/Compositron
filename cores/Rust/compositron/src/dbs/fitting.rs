@@ -36,14 +36,14 @@ fn gaussian_dsig(
 }
 
 pub fn fit_gaussian(
-    x: &[f64], y: &[f64],
+    x: &[f64], y: &[f64], init: Vec<f64>,
 ) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
         .function(&["x0", "sig"], gauss_basis)
         .partial_deriv("x0", gaussian_dx0)
         .partial_deriv("sig", gaussian_dsig)
         .independent_variable(DVector::from_column_slice(x))
-        .initial_parameters(vec![511., 1.])
+        .initial_parameters(init)
         .build()?;
 
     let problem = SeparableProblemBuilder::new(model)

@@ -1,20 +1,14 @@
 use std::collections::HashMap;
 use std::f64::{self, consts::SQRT_2};
-use std::{fs::File, io:: {BufWriter, Write}};
 
-use approx::assert_relative_eq;
-use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use statrs::consts::SQRT_2PI;
 use statrs::function::erf::erfc;
+use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt, TerminationReason};
 use thiserror::Error;
 
-use crate::{core::fitting::FitParam, pals::model::LifetimeModel};
-
-#[derive(Debug, Error)]
-pub enum FitError {
-
-}
+use crate::pals::model::{LifetimeModel};
+use crate::core::fitting::{FitParam, FWHM_OVER_SIGMA};
 
 enum ParamType {
     Varied(usize),
@@ -176,12 +170,7 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
         let r = (&self.y - f).component_mul(&self.w);
 
         if r.iter().any(|x| x.is_nan()) {
-            println!("NaN values in model function detected");
-            println!("internal params: {:?}", self.p);
-            println!("transformed params: {:?}", self.transformed_params);
-            println!("l intensities: {:?}", self.absolute_l_intensities);
-            println!("r intensities: {:?}", self.absolute_r_intensities);
-            panic!();
+            // TODO: log
         }
 
         Some(r)
@@ -371,23 +360,14 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
         let mut j = DMatrix::zeros(n_dpoints, self.p.len());
 
         for (i, param) in self.varied_param_names.iter().enumerate() {
-            j.set_column(
-                i,
-                &(
-                    -derivatives.get(param.into()).unwrap().component_mul(
-                        &(&self.w * self.diffs[i](self.p[i], self.params[i]))
-                    )
+            j.set_column(i, &(
+                -derivatives.get(param.into()).unwrap().component_mul(
+                    &(&self.w * self.diffs[i](self.p[i], self.params[i]))
                 )
-            );
+            ));
 
             if j.iter().any(|x| x.is_nan()) {
-                println!("NaN values in Jacobian detected");
-                println!("Concerns parameter {}", self.varied_param_names[i]);
-                println!("internal params: {:?}", self.p);
-                println!("transformed params: {:?}", self.transformed_params);
-                println!("l intensities: {:?}", self.absolute_l_intensities);
-                println!("r intensities: {:?}", self.absolute_r_intensities);
-                panic!();
+                // TODO: log
             }
         }
 
@@ -415,10 +395,21 @@ fn compute_red_chi2(
 }
 
 fn compute_covariance(
-    problem: &impl levenberg_marquardt::LeastSquaresProblem<f64, Dyn, Dyn>,
-    red_chi2: f64,
+    problem: &Problem, red_chi2: f64
 ) -> Option<DMatrix<f64>> {
-    let j = problem.jacobian()?;
+    let mut j = problem.jacobian()?;
+
+    let d = DVector::from_iterator(
+        problem.p.len(),
+        problem.p
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| problem.diffs[i](p, problem.params[i]))
+    );
+
+    for i in 0..problem.p.len() {
+        j.column_mut(i).scale_mut(1. / (d[i] + 1e-6));
+    }
 
     let jtj = j.transpose() * &j;
 
@@ -440,16 +431,25 @@ struct ProblemTemplate<'a> {
     diffs: Vec<fn (f64, &FitParam) -> f64>,
 }
 
+enum ParamKind {
+    LIntensity,
+    RIntensity,
+    Sigma,
+    Other,
+}
+
 impl<'a> ProblemTemplate<'a> {
     fn gobble(
         &mut self,
         name: String,
         param: &'a FitParam,
-        is_l_intensity: bool,
-        is_r_intensity: bool,
+        param_kind: ParamKind,
     ) {
         if param.vary {
-            self.transformed_params.push(param.val);
+            self.transformed_params.push(match param_kind {
+                ParamKind::Sigma => param.val / FWHM_OVER_SIGMA,
+                _ => param.val,
+            });
             self.param_types.push(
                 ParamType::Varied(self.transformed_params.len() - 1)
             );
@@ -459,92 +459,58 @@ impl<'a> ProblemTemplate<'a> {
             self.backtransforms.push(param.backtransform);
             self.diffs.push(param.diff);
         } else {
-            self.fixed_params.push(param.val);
+            self.fixed_params.push(match param_kind {
+                ParamKind::Sigma => param.val / FWHM_OVER_SIGMA,
+                _ => param.val,
+            });
             self.param_types.push(
                 ParamType::Fixed(self.fixed_params.len() - 1)
             );
-            if is_l_intensity {
-                self.available_l_intensity -= param.val;
-            } else if is_r_intensity {
-                self.available_r_intensity -= param.val;
+            match param_kind {
+                ParamKind::LIntensity => self.available_l_intensity -= param.val,
+                ParamKind::RIntensity => self.available_r_intensity -= param.val,
+                _ => {},
             }
         }
     }
 }
 
-fn build_problem<'a>(
-    x: &[f64], y: &[f64], model: &'a LifetimeModel
-) -> Problem<'a> {
-    let w = DVector::from_iterator(
-        y.len(), y.iter().map(|y_i| 1. / y_i.max(1.).sqrt())
-    );
+fn prepare_fit(
+    model: &mut LifetimeModel,
+    x: &[f64],
+    counts: f64,
+    peak_center: f64,
+) -> (Option<usize>, Option<usize>) {
+    if model.scale_component.default_initialized {
+        model.scale_component.val = 2. * counts;
+        model.scale_component = model.scale_component.min(0.);
+    }
+
+    if model.shift_component.default_initialized {
+        let l = x[0];
+        let r = x[x.len() - 1];
+        let d = r - l;
+        model.shift_component = model.shift_component.min(l - d);
+        model.shift_component = model.shift_component.max(r + d);
+        model.shift_component.val = peak_center;
+    }
+
+    if model.background_component.default_initialized {
+        model.background_component.vary = false;
+    }
 
     let n_l = model.lifetime_components.len();
     let n_r = model.resolution_components.len();
 
-    let mut tmp = ProblemTemplate {
-        transformed_params: Vec::new(),
-        fixed_params: Vec::new(),
-        param_types: Vec::new(),
-        varied_param_names: Vec::new(),
-        params: Vec::new(),
-        available_l_intensity: 1.,
-        available_r_intensity: 1.,
-        transforms: Vec::new(),
-        backtransforms: Vec::new(),
-        diffs: Vec::new(),
-    };
+    let l_int_sum = model.lifetime_components
+        .iter()
+        .fold(0., |cum, comp| cum + comp.intensity.val);
+    let r_int_sum = model.resolution_components
+        .iter()
+        .fold(0., |cum, comp| cum + comp.intensity.val);
 
-    tmp.gobble("N".into(), &model.scale_component, false, false);
-    tmp.gobble("background".into(), &model.background_component, false, false);
-    tmp.gobble("t0".into(), &model.shift_component, false, false);
-
-    for i in 0..n_l {
-        let c = &model.lifetime_components[i];
-        tmp.gobble(format!("lifetime_{}", i + 1), &c.lifetime, false, false);
-        tmp.gobble(format!("intensity_{}", i + 1), &c.intensity, true, false);
-    }
-
-    for i in 0..n_r {
-        let c = &model.resolution_components[i];
-        tmp.gobble(format!("res_fwhm_{}", i + 1), &c.fwhm, false, false);
-        tmp.gobble(format!("res_intensity_{}", i + 1), &c.intensity, false, true);
-        tmp.gobble(format!("res_t0_{}", i + 1), &c.t0, false, false);
-    }
-
-    let problem = Problem {
-        x: DVector::from_column_slice(x),
-        y: DVector::from_column_slice(y),
-        p: DVector::from_element(tmp.transformed_params.len(), f64::NAN),
-        w,
-        n_l: model.lifetime_components.len(),
-        n_r: model.resolution_components.len(),
-        transformed_params: DVector::from_vec(tmp.transformed_params),
-        fixed_params: DVector::from_vec(tmp.fixed_params),
-        param_types: tmp.param_types,
-        varied_param_names: tmp.varied_param_names,
-        params: tmp.params,
-        available_l_intensity: tmp.available_l_intensity,
-        available_r_intensity: tmp.available_r_intensity,
-        absolute_l_intensities: vec![0.; n_l],
-        absolute_r_intensities: vec![0.; n_r],
-        transforms: tmp.transforms,
-        backtransforms: tmp.backtransforms,
-        diffs: tmp.diffs,
-    };
-
-    problem
-}
-
-fn prepare_fit(model: &mut LifetimeModel) -> (Option<usize>, Option<usize>) {
-    // Make initial guesses for missing parameters
-    //
-    // Slap on necessary boundaries
-    //
-    // Set Last Varied Intensity
-
-    let n_l = model.lifetime_components.len();
-    let n_r = model.resolution_components.len();
+    model.lifetime_components.iter_mut().for_each(|comp| comp.intensity.val /= l_int_sum);
+    model.resolution_components.iter_mut().for_each(|comp| comp.intensity.val /= r_int_sum);
 
     let mut last_l_vary_idx = None;
 
@@ -572,29 +538,311 @@ fn prepare_fit(model: &mut LifetimeModel) -> (Option<usize>, Option<usize>) {
         }
     }
 
+    if model.resolution_components.iter().all(|comp| comp.t0.vary) {
+        model.resolution_components[0].t0.val = 0.;
+        model.resolution_components[0].t0.vary = false;
+    }
+
     (last_l_vary_idx, last_r_vary_idx)
 }
 
-fn post_fit(model: LifetimeModel) -> LifetimeModel {
-    // Transform intensities
-    //
-    // Put values and errors into model
-    model
+fn build_problem<'a>(
+    x: &[f64], y: &[f64], model: &'a LifetimeModel
+) -> Problem<'a> {
+    let w = DVector::from_iterator(
+        y.len(), y.iter().map(|y_i| 1. / y_i.max(1.).sqrt())
+    );
+
+    let n_l = model.lifetime_components.len();
+    let n_r = model.resolution_components.len();
+
+    let mut tmp = ProblemTemplate {
+        transformed_params: Vec::new(),
+        fixed_params: Vec::new(),
+        param_types: Vec::new(),
+        varied_param_names: Vec::new(),
+        params: Vec::new(),
+        available_l_intensity: 1.,
+        available_r_intensity: 1.,
+        transforms: Vec::new(),
+        backtransforms: Vec::new(),
+        diffs: Vec::new(),
+    };
+
+    tmp.gobble("N".into(), &model.scale_component, ParamKind::Other);
+    tmp.gobble("background".into(), &model.background_component, ParamKind::Other);
+    tmp.gobble("t0".into(), &model.shift_component, ParamKind::Other);
+
+    for i in 0..n_l {
+        let c = &model.lifetime_components[i];
+        tmp.gobble(format!("lifetime_{}", i + 1), &c.lifetime, ParamKind::Other);
+        tmp.gobble(format!("intensity_{}", i + 1), &c.intensity, ParamKind::LIntensity);
+    }
+
+    for i in 0..n_r {
+        let c = &model.resolution_components[i];
+        tmp.gobble(format!("res_fwhm_{}", i + 1), &c.fwhm, ParamKind::Sigma);
+        tmp.gobble(format!("res_intensity_{}", i + 1), &c.intensity, ParamKind::RIntensity);
+        tmp.gobble(format!("res_t0_{}", i + 1), &c.t0, ParamKind::Other);
+    }
+
+    let problem = Problem {
+        x: DVector::from_column_slice(x),
+        y: DVector::from_column_slice(y),
+        p: DVector::from_element(tmp.transformed_params.len(), f64::NAN),
+        w,
+        n_l: model.lifetime_components.len(),
+        n_r: model.resolution_components.len(),
+        transformed_params: DVector::from_vec(tmp.transformed_params),
+        fixed_params: DVector::from_vec(tmp.fixed_params),
+        param_types: tmp.param_types,
+        varied_param_names: tmp.varied_param_names,
+        params: tmp.params,
+        available_l_intensity: tmp.available_l_intensity,
+        available_r_intensity: tmp.available_r_intensity,
+        absolute_l_intensities: vec![0.; n_l],
+        absolute_r_intensities: vec![0.; n_r],
+        transforms: tmp.transforms,
+        backtransforms: tmp.backtransforms,
+        diffs: tmp.diffs,
+    };
+
+    problem
+}
+
+fn paste_val_and_err(
+    param: &mut FitParam,
+    param_idx: usize,
+    param_types: &Vec<ParamType>,
+    transformed_params: &DVector<f64>,
+    errors: Option<&DVector<f64>>
+) {
+    match param_types[param_idx] {
+        ParamType::Varied(idx) => {
+            param.val = transformed_params[idx];
+            if let Some(errs) = &errors {
+                param.err = errs[idx];
+            }
+        },
+        ParamType::Fixed(_) => {
+            param.err = 0.;
+        },
+        _ => {},
+    }
+}
+
+fn transform_intensity_errors(
+    model: &mut LifetimeModel,
+    transformed_params: &DVector<f64>,
+    param_types: &Vec<ParamType>,
+    absolute_l_intensities: &Vec<f64>,
+    absolute_r_intensities: &Vec<f64>,
+    last_l_vary_idx: Option<usize>,
+    last_r_vary_idx: Option<usize>,
+    errors: Option<&DVector<f64>>,
+) {
+    let Some(errs) = errors else { return; };
+
+    let mut l_cumul_sq_err = 0.;
+
+    if let Some(last_l_vary_idx) = last_l_vary_idx {
+        for (i, comp) in model.lifetime_components.iter_mut().enumerate() {
+            let i_idx = 3 + 2 * i + 1;
+            match param_types[i_idx] {
+                ParamType::Varied(idx) => {
+                    comp.intensity.err = absolute_l_intensities[i] * (
+                        l_cumul_sq_err +
+                        (errs[idx] / (transformed_params[idx] + 1e-12)).powi(2)
+                    ).sqrt();
+                    l_cumul_sq_err += (
+                        errs[idx] / (1. - transformed_params[idx] + 1e-12)
+                    ).powi(2);
+                },
+                ParamType::LastVariedIntensity(_) => {
+                    comp.intensity.err = absolute_l_intensities[last_l_vary_idx] * l_cumul_sq_err.sqrt();
+                    comp.intensity.vary = true;
+                    break;
+                },
+                ParamType::Fixed(_) => {
+                    comp.intensity.err = 0.;
+                },
+            }
+        }
+    }
+
+    let mut r_cumul_sq_err = 0.;
+    let n_l = model.lifetime_components.len();
+
+    if let Some(last_r_vary_idx) = last_r_vary_idx {
+        for (i, comp) in model.resolution_components.iter_mut().enumerate() {
+            let i_idx = 3 + 2 * n_l + 3 * i + 1;
+            match param_types[i_idx] {
+                ParamType::Varied(idx) => {
+                    comp.intensity.err = absolute_r_intensities[i] * (
+                        r_cumul_sq_err +
+                        (errs[idx] / (transformed_params[idx] + 1e-12)).powi(2)
+                    ).sqrt();
+                    r_cumul_sq_err += (
+                        errs[idx] / (1. - transformed_params[idx] + 1e-12)
+                    ).powi(2);
+                },
+                ParamType::LastVariedIntensity(_) => {
+                    comp.intensity.err = absolute_r_intensities[last_r_vary_idx] * r_cumul_sq_err.sqrt();
+                    comp.intensity.vary = true;
+                    break;
+                },
+                ParamType::Fixed(_) => {},
+            }
+        }
+    }
+}
+
+fn post_fit(
+    model: &mut LifetimeModel,
+    param_types: &Vec<ParamType>,
+    transformed_params: &DVector<f64>,
+    absolute_l_intensities: &Vec<f64>,
+    absolute_r_intensities: &Vec<f64>,
+    last_l_vary_idx: Option<usize>,
+    last_r_vary_idx: Option<usize>,
+    errors: Option<&DVector<f64>>,
+) {
+    let n_l = model.lifetime_components.len();
+    let n_r = model.resolution_components.len();
+
+    for i in 0..n_l {
+        model.lifetime_components[i].intensity.val = absolute_l_intensities[i];
+    }
+
+    for i in 0..n_r {
+        model.resolution_components[i].intensity.val = absolute_r_intensities[i];
+    }
+
+    paste_val_and_err(
+        &mut model.scale_component, 0, param_types, transformed_params, errors
+    );
+    paste_val_and_err(
+        &mut model.background_component, 1, param_types, transformed_params, errors
+    );
+    paste_val_and_err(
+        &mut model.shift_component, 2, param_types, transformed_params, errors
+    );
+
+    for i in 0..n_l {
+        let comp = &mut model.lifetime_components[i];
+        let idx = 3 + 2 * i;
+        paste_val_and_err(
+            &mut comp.lifetime, idx, param_types, transformed_params, errors
+        );
+    }
+
+    for i in 0..n_r {
+        let comp = &mut model.resolution_components[i];
+        let idx = 3 + 2 * n_l + 3 * i;
+        paste_val_and_err(
+            &mut comp.fwhm, idx, param_types, transformed_params, errors
+        );
+        comp.fwhm.val *= FWHM_OVER_SIGMA;
+        comp.fwhm.err *= FWHM_OVER_SIGMA;
+        paste_val_and_err(
+            &mut comp.t0, idx + 2, param_types, transformed_params, errors
+        );
+    }
+
+    transform_intensity_errors(
+        model,
+        transformed_params,
+        param_types,
+        absolute_l_intensities,
+        absolute_r_intensities,
+        last_l_vary_idx,
+        last_r_vary_idx,
+        errors,
+    );
 }
 
 pub struct FitResult {
-    model: LifetimeModel,
-    termination: levenberg_marquardt::TerminationReason,
-    n_eval: usize,
-    chi_2: Option<f64>,
-    cov: Option<DMatrix<f64>>,
-    res: Option<DVector<f64>>,
+    pub model: LifetimeModel,
+    pub n_dpoints: usize,
+    pub fit_status: FitStatus,
+    pub n_eval: usize,
+    pub red_chi_2: Option<f64>,
+    pub cov: Option<DMatrix<f64>>,
+}
+
+#[derive(Debug, Error)]
+pub enum FitError {
+    #[error("Fit failed: {info}")]
+    Failure {
+        info: String,
+    },
+}
+
+pub struct FitStatus {
+    termination: TerminationReason,
+}
+
+impl FitStatus {
+    pub fn repr(&self) -> &str {
+        match self.termination {
+            TerminationReason::User(_) => {
+                "The residual or Jacobian computation failed"
+            },
+            TerminationReason::Numerical(_) => {
+                "Encountered NaN or inf"
+            },
+            TerminationReason::ResidualsZero => {
+                "The residuals are literally zero"
+            },
+            TerminationReason::Orthogonal => {
+                "gtol termination criterion fulfilled"
+            },
+            TerminationReason::Converged { ftol, xtol } => {
+                if ftol && !xtol {
+                    "ftol termination criterion fulfilled"
+                } else if !ftol && xtol {
+                    "xtol termination criterion fulfilled"
+                } else {
+                    "ftol and xtol criterion fulfilled"
+                }
+            },
+            TerminationReason::NoImprovementPossible(_) => {
+                "The bound for `ftol`, `xtol` or `gtol` was set so low that \
+                the test passed with the machine epsilon but not with the \
+                actual bound"
+            },
+            TerminationReason::LostPatience => {
+                "Maximum number of function evaluations was hit"
+            },
+            TerminationReason::NoParameters => {
+                "The number of parameters is zero"
+            },
+            TerminationReason::NoResiduals => {
+                "The number of residuals is zero"
+            },
+            TerminationReason::WrongDimensions(_) => {
+                "The shape of the computed residuals or Jacobian is not correct"
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for FitStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr())
+    }
 }
 
 pub fn fit_lifetime_spectrum(
-    x: &[f64], y: &[f64], mut model: LifetimeModel
+    x: &[f64],
+    y: &[f64],
+    mut model: LifetimeModel,
+    counts: f64,
+    peak_center: f64,
 ) -> Result<FitResult, FitError> {
-    let (last_l_vary_idx, last_r_vary_idx) = prepare_fit(&mut model);
+    let (last_l_vary_idx, last_r_vary_idx) = prepare_fit(
+        &mut model, x, counts, peak_center
+    );
 
     let mut problem = build_problem(x, y, &model);
 
@@ -609,9 +857,19 @@ pub fn fit_lifetime_spectrum(
     problem.set_init();
     problem.make_intensities();
 
-    let (problem, report) = LevenbergMarquardt::new().minimize(problem);
+    let lm = LevenbergMarquardt::new()
+        .with_ftol(1.49012e-08)
+        .with_xtol(1.49012e-08)
+        .with_gtol(0.)
+        .with_scale_diag(true);
 
-    // TODO: if not converged, return err
+    let (problem, report) = lm.minimize(problem);
+
+    let fit_status = FitStatus { termination: report.termination };
+
+    if !fit_status.termination.was_successful() {
+        return Err(FitError::Failure { info: fit_status.repr().into() });
+    }
 
     let red_chi2 = compute_red_chi2(&problem);
 
@@ -625,31 +883,28 @@ pub fn fit_lifetime_spectrum(
         Some(c) => Some(c.diagonal().map(|v| v.sqrt())),
     };
 
-    // if let Some(c) = std_err {
-    //     println!("std err: {}", c);
-    // }
+    let param_types = problem.param_types;
+    let transformed_params = problem.transformed_params;
+    let absolute_l_intensities = problem.absolute_l_intensities;
+    let absolute_r_intensities = problem.absolute_r_intensities;
 
-    println!("Converged: {:?}", report.termination);
-    println!("N Iter:    {}", report.number_of_evaluations);
-    println!("n:       {}", problem.get_param(0));
-    println!("bg:      {}", problem.get_param(1));
-    println!("t0:      {}", problem.get_param(2));
-    for i in 0..problem.n_l {
-        println!("tau_{}:   {}", i + 1, problem.get_param(3 + 2 * i));
-        println!("int_{}:   {}", i + 1, problem.absolute_l_intensities[i]);
-    }
-    for i in 0..problem.n_r {
-        println!("fwhm_{}:  {}", i + 1, problem.get_param(3 + 2 * problem.n_l + 3 * i));
-        println!("r_int_{}: {}", i + 1, problem.get_param(3 + 2 * problem.n_l + 3 * i + 1));
-        println!("r_t0_{}:  {}", i + 1, problem.absolute_r_intensities[i]);
-    }
+    post_fit(
+        &mut model,
+        &param_types,
+        &transformed_params,
+        &absolute_l_intensities,
+        &absolute_r_intensities,
+        last_l_vary_idx,
+        last_r_vary_idx,
+        std_err.as_ref(),
+    );
 
     Ok(FitResult {
         model,
-        termination: report.termination,
+        n_dpoints: x.len(),
+        fit_status: fit_status,
         n_eval: report.number_of_evaluations,
-        chi_2: red_chi2,
+        red_chi_2: red_chi2,
         cov: cov,
-        res: None,
     })
 }

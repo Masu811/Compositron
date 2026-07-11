@@ -1,4 +1,4 @@
 pub mod model;
-pub mod fitting;
+mod fitting;
 pub mod palspectrum;
 pub use palspectrum::PALSpectrum;

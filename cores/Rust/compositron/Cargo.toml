@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-approx = "0.5.1"
 levenberg-marquardt = "0.15.0"
 nalgebra = "0.34.2"
 png = "0.18.1"

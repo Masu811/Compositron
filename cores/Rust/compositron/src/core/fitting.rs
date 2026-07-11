@@ -90,14 +90,16 @@ pub struct FitParam {
     pub transform: fn (f64, &FitParam) -> f64,
     pub backtransform: fn (f64, &FitParam) -> f64,
     pub diff: fn (f64, &FitParam) -> f64,
+    pub default_initialized: bool,
 }
 
 impl std::fmt::Debug for FitParam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "FitParam(val={}, min={}, max={}, vary={})",
+            "FitParam(val={}, err={}, min={}, max={}, vary={})",
             self.val,
+            self.err,
             self.min,
             self.max,
             self.vary,
@@ -116,13 +118,20 @@ impl FitParam {
             transform: identity_transform,
             backtransform: identity_transform,
             diff: identity_diff,
+            default_initialized: false,
         }
+    }
+
+    pub fn default<T: Into<f64>>(value: T) -> Self {
+        let mut p = FitParam::new(value);
+        p.default_initialized = true;
+        p
     }
 
     pub fn min<T: Into<f64>>(mut self, min: T) -> Self {
         self.min = min.into();
 
-        if self.max == f64::INFINITY {
+        if self.max.is_infinite() {
             self.transform = min_transform;
             self.backtransform = min_backtransform;
             self.diff = min_diff;
@@ -138,7 +147,7 @@ impl FitParam {
     pub fn max<T: Into<f64>>(mut self, max: T) -> Self {
         self.max = max.into();
 
-        if self.min == f64::NEG_INFINITY {
+        if self.min.is_infinite() {
             self.transform = max_transform;
             self.backtransform = max_backtransform;
             self.diff = max_diff;

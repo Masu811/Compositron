@@ -45,7 +45,7 @@ pub fn parse_model(
         lifetime_components.push(LifetimeComponent {
             lifetime,
             intensity: model.remove(&i_key)
-                .unwrap_or(FitParam::new(0.5))
+                .unwrap_or(FitParam::default(0.5))
         });
         n_l += 1;
     }
@@ -59,9 +59,9 @@ pub fn parse_model(
         resolution_components.push(ResolutionComponent {
             fwhm,
             intensity: model.remove(&i_key)
-                .unwrap_or(FitParam::new(0.5)),
+                .unwrap_or(FitParam::default(0.5)),
             t0: model.remove(&t_key)
-                .unwrap_or(FitParam::new(0.)),
+                .unwrap_or(FitParam::default(0.)),
         });
         n_r += 1;
     }
@@ -86,11 +86,11 @@ pub fn parse_model(
         lifetime_components: lifetime_components,
         resolution_components: resolution_components,
         background_component: model.remove("background")
-            .unwrap_or(FitParam::new(0.).fixed()),
+            .unwrap_or(FitParam::default(0.).fixed()),
         scale_component: model.remove("N")
-            .unwrap_or(FitParam::new(1.).min(0.)),
+            .unwrap_or(FitParam::default(1.).min(0.)),
         shift_component: model.remove("t0")
-            .unwrap_or(FitParam::new(0.)),
+            .unwrap_or(FitParam::default(0.)),
     })
 }
 
