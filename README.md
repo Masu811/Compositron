@@ -14,9 +14,9 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 | SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
 | DBS analysis         | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | MePS importer        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| PALS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| PALS analysis        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | Profile analysis     | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 
 ## Architectures
