@@ -1,8 +1,5 @@
 use thiserror::Error;
 
-pub const TWO_OVER_SQRT_PI: f64 = 1.1283791670955126;
-pub const FWHM_OVER_SIGMA: f64 = 2.3548200450309493;
-
 #[derive(Debug, Error)]
 pub enum FitError {
     #[error("Data contains only NaN values")]

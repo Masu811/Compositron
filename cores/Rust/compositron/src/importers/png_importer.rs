@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use png;
 use thiserror::Error;
 
-use crate::core::utils::{Spectrum, Spectrum2D};
+use crate::core::utils::{Spectrum2D, FromRowMajor};
 
 #[derive(Debug, Error)]
 pub enum ImportError {
@@ -128,9 +128,7 @@ pub fn import_png(path: &Path) -> Result<Spectrum2D, ImportError> {
 
     let spectrum = bytes_to_spectrum(bytes, n_channels);
 
-    Ok(Spectrum2D{
-        width: reader.info().width as usize,
-        height: reader.info().height as usize,
-        data: Spectrum::from(spectrum),
-    })
+    Ok(Spectrum2D::from_row_major(
+        &spectrum, reader.info().height as usize, reader.info().width as usize
+    ))
 }

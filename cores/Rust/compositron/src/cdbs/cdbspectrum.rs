@@ -1,17 +1,20 @@
+use std::collections::HashMap;
+
+use crate::core::fitting;
 use crate::core::utils::Spectrum2D;
+use crate::dbs::dbspectrum::LineshapeParam;
 
 pub struct CDBSpectrum {
     pub spectrum: Spectrum2D,
     pub detpair: String,
     pub ecal: ((f64, f64), (f64, f64)),
-    pub s: f64,
-    pub ds: f64,
-    pub w: f64,
-    pub dw: f64,
     pub counts: u64,
     pub dcounts: f64,
-    pub roi_counts: f64,
-    pub droi_counts: f64,
+    pub eres: Option<f64>,
+    pub roi_counts: Option<f64>,
+    pub droi_counts: Option<f64>,
+    pub roi_params: HashMap<&'static str, fitting::SimpleFitParam>,
+    pub lineshape_params: HashMap<String, LineshapeParam>,
 }
 
 impl CDBSpectrum {
@@ -22,14 +25,25 @@ impl CDBSpectrum {
             spectrum: spectrum,
             detpair: detpair,
             ecal: ecal,
-            s: f64::NAN,
-            ds: f64::NAN,
-            w: f64::NAN,
-            dw: f64::NAN,
             counts: 0,
             dcounts: f64::NAN,
-            roi_counts: f64::NAN,
-            droi_counts: f64::NAN,
+            eres: None,
+            roi_counts: None,
+            droi_counts: None,
+            roi_params: HashMap::new(),
+            lineshape_params: HashMap::new(),
         }
     }
+
+    pub fn project_axes(&self) {}
+
+    pub fn rebin(&mut self) {}
+
+    pub fn fit_2d_peak(&mut self) {}
+
+    pub fn cut_digonal_slice(&self) {}
+
+    pub fn project_digonal(&self) {}
+
+    pub fn calc_lineshape_param(&mut self) {}
 }

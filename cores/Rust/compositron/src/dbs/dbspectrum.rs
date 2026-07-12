@@ -2,18 +2,14 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
+use crate::constants::M_E_KEV;
 use crate::core::utils::{spectrum_match, LossyIntoF64, Spectrum};
 use crate::core::fitting;
 use crate::dbs::fitting::*;
-use crate::M_E_KEV;
 
 // NOTE:
 // - spectrum counts represent the center of their bins
 // - integration happens in channel space, not in energy space
-
-// TODO:
-// - queue to pipe out debug data (std::sync::mpsc::Sender)
-// - log levels
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -35,7 +31,7 @@ pub enum AnalysisError {
     NoPeakExtracted,
 
     #[error(
-        "Attempting to integrate area on both sides of the peak which are \
+        "Attempting to integrate areas on both sides of the peak which are \
         overlapping (area_width > area_dist)"
     )]
     OverlappingAreas,
@@ -146,7 +142,7 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
     LineshapeParamDefinition::Spectrum {
         name: "P/T",
         num_bnds: (510., 512.),
-        denom_bnds: (481., 541.),
+        denom_bnds: (f64::NEG_INFINITY, f64::INFINITY),
     },
 ];
 
@@ -305,7 +301,7 @@ impl DBSpectrum {
 
         self.peak = Some(spectrum_match!(
             &self.spectrum,
-            arr => arr[left_peak_idx..=right_peak_idx]
+            arr => arr.rows(left_peak_idx, right_peak_idx - left_peak_idx)
                 .iter()
                 .map(|&x| x as f64)
                 .collect()
@@ -354,10 +350,10 @@ impl DBSpectrum {
     ) -> Result<f64, AnalysisError> {
         // TODO: We could allow for a lower_ch_bdn of >= -0.5
         // but I'm too lazy to deal with this special edge case now
-        if lower_ch_bnd <= 0. {
+        if lower_ch_bnd <= 0. && !lower_ch_bnd.is_infinite() {
             return Err(AnalysisError::OutOfBounds);
         }
-        if upper_ch_bnd >= spectrum.len() as f64 - 1. {
+        if upper_ch_bnd >= spectrum.len() as f64 - 1. && !upper_ch_bnd.is_infinite() {
             return Err(AnalysisError::OutOfBounds);
         }
 
@@ -463,7 +459,7 @@ impl DBSpectrum {
         } else {
             spectrum_match!(
                 &self.spectrum, spectrum => DBSpectrum::integrate(
-                    spectrum,
+                    spectrum.as_slice(),
                     lower_ch_bnd,
                     upper_ch_bnd,
                     bin_integration_scheme,

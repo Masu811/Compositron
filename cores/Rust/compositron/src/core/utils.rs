@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
+use num_traits::Unsigned;
 use thiserror::Error;
+use nalgebra::{DMatrix, DVector};
 
 #[derive(Debug, Error)]
 pub enum FitError {
@@ -21,12 +25,23 @@ pub enum FitError {
     RuntimeError,
 }
 
+#[derive(Debug)]
+pub struct DetectorCalibration {
+    pub offset: f64,
+    pub scale: f64,
+}
+
+#[derive(Debug)]
+pub struct CoincDetectorCalibration {
+    pub first_det: Arc<DetectorCalibration>,
+    pub second_det: Arc<DetectorCalibration>,
+}
 
 pub enum Spectrum {
-    U8(Vec<u8>),
-    U16(Vec<u16>),
-    U32(Vec<u32>),
-    U64(Vec<u64>),
+    U8(DVector<u8>),
+    U16(DVector<u16>),
+    U32(DVector<u32>),
+    U64(DVector<u64>),
 }
 
 #[macro_export]
@@ -45,7 +60,7 @@ pub(crate) use spectrum_match;
 
 impl From<Vec<u8>> for Spectrum {
     fn from(other: Vec<u8>) -> Spectrum {
-        Spectrum::U8(other)
+        Spectrum::U8(DVector::from_vec(other))
     }
 }
 
@@ -54,9 +69,11 @@ impl From<Vec<u16>> for Spectrum {
         let max = other.iter().max().unwrap_or(&u16::MAX);
 
         if max <= &u8::MAX.into() {
-            Spectrum::U8(other.iter().map(|&x| x as u8).collect())
+            Spectrum::U8(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u8)
+            ))
         } else {
-            Spectrum::U16(other)
+            Spectrum::U16(DVector::from_vec(other))
         }
     }
 }
@@ -66,11 +83,15 @@ impl From<Vec<u32>> for Spectrum {
         let max = other.iter().max().unwrap_or(&u32::MAX);
 
         if max <= &u8::MAX.into() {
-            Spectrum::U8(other.iter().map(|&x| x as u8).collect())
+            Spectrum::U8(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u8)
+            ))
         } else if max <= &u16::MAX.into() {
-            Spectrum::U16(other.iter().map(|&x| x as u16).collect())
+            Spectrum::U16(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u16)
+            ))
         } else {
-            Spectrum::U32(other)
+            Spectrum::U32(DVector::from_vec(other))
         }
     }
 }
@@ -80,13 +101,19 @@ impl From<Vec<u64>> for Spectrum {
         let max = other.iter().max().unwrap_or(&u64::MAX);
 
         if max <= &u8::MAX.into() {
-            Spectrum::U8(other.iter().map(|&x| x as u8).collect())
+            Spectrum::U8(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u8)
+            ))
         } else if max <= &u16::MAX.into() {
-            Spectrum::U16(other.iter().map(|&x| x as u16).collect())
+            Spectrum::U16(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u16)
+            ))
         } else if max <= &u16::MAX.into() {
-            Spectrum::U32(other.iter().map(|&x| x as u32).collect())
+            Spectrum::U32(DVector::from_iterator(
+                other.len(), other.iter().map(|&x| x as u32)
+            ))
         } else {
-            Spectrum::U64(other)
+            Spectrum::U64(DVector::from_vec(other))
         }
     }
 }
@@ -101,65 +128,153 @@ impl Spectrum {
     }
 }
 
-pub enum SpectrumSlice<'a> {
-    U8(&'a [u8]),
-    U16(&'a [u16]),
-    U32(&'a [u32]),
-    U64(&'a [u64]),
+pub enum Spectrum2D {
+    U8(DMatrix<u8>),
+    U16(DMatrix<u16>),
+    U32(DMatrix<u32>),
+    U64(DMatrix<u64>),
 }
 
-macro_rules! spectrum_slice_match {
+#[macro_export]
+macro_rules! spectrum2d_match {
     ($s:expr, $v:ident => $body:expr) => {
         match $s {
-            SpectrumSlice::U8($v) => $body,
-            SpectrumSlice::U16($v) => $body,
-            SpectrumSlice::U32($v) => $body,
-            SpectrumSlice::U64($v) => $body,
+            $crate::core::utils::Spectrum2D::U8($v) => $body,
+            $crate::core::utils::Spectrum2D::U16($v) => $body,
+            $crate::core::utils::Spectrum2D::U32($v) => $body,
+            $crate::core::utils::Spectrum2D::U64($v) => $body,
         }
     };
 }
 
-pub(crate) use spectrum_slice_match;
+pub(crate) use spectrum2d_match;
 
-impl<'a> From<&'a [u8]> for SpectrumSlice<'a> {
-    fn from(other: &'a [u8]) -> SpectrumSlice<'a> {
-        SpectrumSlice::U8(other)
+impl Spectrum2D {
+    pub fn nrows(&self) -> usize {
+        spectrum2d_match!(self, arr => arr.nrows())
+    }
+
+    pub fn ncols(&self) -> usize {
+        spectrum2d_match!(self, arr => arr.ncols())
     }
 }
 
-impl<'a> From<&'a [u16]> for SpectrumSlice<'a> {
-    fn from(other: &'a [u16]) -> SpectrumSlice<'a> {
-        SpectrumSlice::U16(other)
+pub trait FromColMajor<T: Unsigned> {
+    fn from_col_major(data: &Vec<T>, nrows: usize, ncols: usize) -> Self;
+}
+
+impl FromColMajor<u8> for Spectrum2D {
+    fn from_col_major(data: &Vec<u8>, nrows: usize, ncols: usize) -> Self {
+        Spectrum2D::U8(DMatrix::from_column_slice(nrows, ncols, data))
     }
 }
 
-impl<'a> From<&'a [u32]> for SpectrumSlice<'a> {
-    fn from(other: &'a [u32]) -> SpectrumSlice<'a> {
-        SpectrumSlice::U32(other)
+impl FromColMajor<u16> for Spectrum2D {
+    fn from_col_major(data: &Vec<u16>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u16::MAX);
+
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U16(DMatrix::from_column_slice(nrows, ncols, &data))
+        }
     }
 }
 
-impl<'a> From<&'a [u64]> for SpectrumSlice<'a> {
-    fn from(other: &'a [u64]) -> SpectrumSlice<'a> {
-        SpectrumSlice::U64(other)
+impl FromColMajor<u32> for Spectrum2D {
+    fn from_col_major(data: &Vec<u32>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u32::MAX);
+
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else if max <= &u16::MAX.into() {
+            let data = data.iter().map(|&x| x as u16).collect::<Vec<u16>>();
+            Spectrum2D::U16(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U32(DMatrix::from_column_slice(nrows, ncols, &data))
+        }
     }
 }
 
-impl<'a> SpectrumSlice<'a> {
-    pub fn len(&self) -> usize {
-        spectrum_slice_match!(self, spectrum => spectrum.len())
-    }
+impl FromColMajor<u64> for Spectrum2D {
+    fn from_col_major(data: &Vec<u64>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u64::MAX);
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else if max <= &u16::MAX.into() {
+            let data = data.iter().map(|&x| x as u16).collect::<Vec<u16>>();
+            Spectrum2D::U16(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else if max <= &u32::MAX.into() {
+            let data = data.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+            Spectrum2D::U32(DMatrix::from_column_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U64(DMatrix::from_column_slice(nrows, ncols, &data))
+        }
     }
 }
 
-pub struct Spectrum2D {
-    pub width: usize,
-    pub height: usize,
-    pub data: Spectrum,
+pub trait FromRowMajor<T: Unsigned> {
+    fn from_row_major(data: &Vec<T>, nrows: usize, ncols: usize) -> Self;
 }
+
+impl FromRowMajor<u8> for Spectrum2D {
+    fn from_row_major(data: &Vec<u8>, nrows: usize, ncols: usize) -> Self {
+        Spectrum2D::U8(DMatrix::from_row_slice(nrows, ncols, data))
+    }
+}
+
+impl FromRowMajor<u16> for Spectrum2D {
+    fn from_row_major(data: &Vec<u16>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u16::MAX);
+
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U16(DMatrix::from_row_slice(nrows, ncols, &data))
+        }
+    }
+}
+
+impl FromRowMajor<u32> for Spectrum2D {
+    fn from_row_major(data: &Vec<u32>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u32::MAX);
+
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else if max <= &u16::MAX.into() {
+            let data = data.iter().map(|&x| x as u16).collect::<Vec<u16>>();
+            Spectrum2D::U16(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U32(DMatrix::from_row_slice(nrows, ncols, &data))
+        }
+    }
+}
+
+impl FromRowMajor<u64> for Spectrum2D {
+    fn from_row_major(data: &Vec<u64>, ncols: usize, nrows: usize) -> Self {
+        let max = data.iter().max().unwrap_or(&u64::MAX);
+
+        if max <= &u8::MAX.into() {
+            let data = data.iter().map(|&x| x as u8).collect::<Vec<u8>>();
+            Spectrum2D::U8(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else if max <= &u16::MAX.into() {
+            let data = data.iter().map(|&x| x as u16).collect::<Vec<u16>>();
+            Spectrum2D::U16(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else if max <= &u32::MAX.into() {
+            let data = data.iter().map(|&x| x as u32).collect::<Vec<u32>>();
+            Spectrum2D::U32(DMatrix::from_row_slice(nrows, ncols, &data))
+        } else {
+            Spectrum2D::U64(DMatrix::from_row_slice(nrows, ncols, &data))
+        }
+    }
+}
+
 
 pub trait LossyIntoF64: Copy { fn lossy_into_f64(x: Self) -> f64; }
 

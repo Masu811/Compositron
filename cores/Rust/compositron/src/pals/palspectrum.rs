@@ -1,7 +1,8 @@
 use thiserror::Error;
 
+use crate::constants::FWHM_OVER_SIGMA;
 use crate::core::utils::{spectrum_match, Spectrum};
-use crate::core::fitting::{FitParam, FWHM_OVER_SIGMA};
+use crate::core::fitting::FitParam;
 use crate::dbs::fitting::fit_gaussian;
 use crate::pals::fitting::{fit_lifetime_spectrum, FitResult};
 use crate::pals::model::*;
@@ -90,7 +91,7 @@ impl PALSpectrum {
         let roi = argmax - peak_center_window .. argmax + peak_center_window;
 
         let y = spectrum_match!(
-            &self.spectrum, arr => arr[roi.clone()]
+            &self.spectrum, arr => arr.rows(roi.start, roi.len())
                 .iter()
                 .map(|&i| i as f64)
                 .collect::<Vec<f64>>()
@@ -123,7 +124,13 @@ impl PALSpectrum {
 
         let roi = fit_start_idx..fit_end_idx;
 
-        let y = spectrum_match!(&self.spectrum, arr => arr[roi.clone()].iter().map(|&i| i as f64).collect::<Vec<f64>>());
+        let y = spectrum_match!(
+            &self.spectrum, arr => arr.rows(roi.start, roi.len())
+                .iter()
+                .map(|&i| i as f64)
+                .collect::<Vec<f64>>()
+        );
+
         let x = roi.map(|i| self.tcal.0 + i as f64 * self.tcal.1).collect::<Vec<f64>>();
 
         let fit_result = fit_lifetime_spectrum(

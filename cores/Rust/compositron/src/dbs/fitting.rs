@@ -6,7 +6,8 @@ use varpro::prelude::*;
 use varpro::problem::*;
 use varpro::solvers::levmar::LevMarSolver;
 
-use crate::core::fitting::{FitError, SimpleFitParam, TWO_OVER_SQRT_PI};
+use crate::constants::TWO_OVER_SQRT_PI;
+use crate::core::fitting::{FitError, SimpleFitParam};
 
 fn gauss_basis(
     x: &DVector<f64>, x0: f64, sig: f64

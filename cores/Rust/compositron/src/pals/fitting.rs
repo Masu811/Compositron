@@ -1,14 +1,13 @@
 use std::collections::HashMap;
-use std::f64::{self, consts::SQRT_2};
 
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
-use statrs::consts::SQRT_2PI;
 use statrs::function::erf::erfc;
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt, TerminationReason};
 use thiserror::Error;
 
-use crate::pals::model::{LifetimeModel};
-use crate::core::fitting::{FitParam, FWHM_OVER_SIGMA};
+use crate::constants::{FWHM_OVER_SIGMA, SQRT_2, SQRT_2PI};
+use crate::pals::model::LifetimeModel;
+use crate::core::fitting::FitParam;
 
 enum ParamType {
     Varied(usize),
