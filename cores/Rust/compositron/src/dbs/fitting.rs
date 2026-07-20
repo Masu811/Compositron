@@ -7,7 +7,7 @@ use varpro::problem::*;
 use varpro::solvers::levmar::LevMarSolver;
 
 use crate::constants::TWO_OVER_SQRT_PI;
-use crate::core::fitting::{FitError, SimpleFitParam};
+use crate::core::fitting::{VarproFitError, SimpleFitParam};
 
 fn gauss_basis(
     x: &DVector<f64>, x0: f64, sig: f64
@@ -38,7 +38,7 @@ fn gaussian_dsig(
 
 pub fn fit_gaussian(
     x: &[f64], y: &[f64], init: Vec<f64>,
-) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
         .function(&["x0", "sig"], gauss_basis)
         .partial_deriv("x0", gaussian_dx0)
@@ -52,13 +52,13 @@ pub fn fit_gaussian(
         .build()?;
 
     let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let nonlin = fit_result.nonlinear_parameters();
 
     let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
@@ -117,7 +117,7 @@ fn const_basis(x: &DVector<f64>) -> DVector<f64> {
 /// erf amp, linear coeff, const coeff
 pub fn fit_erf_linear_1_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
         .function(&["x0", "sig"], gauss_basis)
         .partial_deriv("x0", gaussian_dx0)
@@ -142,13 +142,13 @@ pub fn fit_erf_linear_1_gauss(
         .build()?;
 
     let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let nonlin = fit_result.nonlinear_parameters();
 
     let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
@@ -171,7 +171,7 @@ pub fn fit_erf_linear_1_gauss(
 
 pub fn fit_erf_linear_2_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
     let model = SeparableModelBuilder::<f64>::new(
             &["x0_1", "sig_1", "x0_2", "sig_2"]
         )
@@ -201,13 +201,13 @@ pub fn fit_erf_linear_2_gauss(
         .build()?;
 
     let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let nonlin = fit_result.nonlinear_parameters();
 
     let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
@@ -233,7 +233,7 @@ pub fn fit_erf_linear_2_gauss(
 
 pub fn fit_erf_linear_3_gauss(
     x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, FitError> {
+) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
     let model = SeparableModelBuilder::<f64>::new(
             &["x0_1", "sig_1", "x0_2", "sig_2", "x0_3", "sig_3"]
         )
@@ -266,13 +266,13 @@ pub fn fit_erf_linear_3_gauss(
         .build()?;
 
     let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let nonlin = fit_result.nonlinear_parameters();
 
     let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(FitError::RuntimeError);
+        return Err(VarproFitError::RuntimeError);
     };
 
     let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;

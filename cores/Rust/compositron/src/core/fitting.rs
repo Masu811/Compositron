@@ -1,7 +1,8 @@
+use levenberg_marquardt::TerminationReason;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum FitError {
+pub enum VarproFitError {
     #[error("Data contains only NaN values")]
     AllNANValues,
 
@@ -172,5 +173,68 @@ impl FitParam {
 
     pub fn diff(&self, value: f64) -> f64 {
         (self.diff)(value, self)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum LMFitError {
+    #[error("Fit failed: {info}")]
+    Failure {
+        info: String,
+    },
+}
+
+pub struct FitStatus {
+    pub termination: TerminationReason,
+}
+
+impl FitStatus {
+    pub fn repr(&self) -> &str {
+        match self.termination {
+            TerminationReason::User(_) => {
+                "The residual or Jacobian computation failed"
+            },
+            TerminationReason::Numerical(_) => {
+                "Encountered NaN or inf"
+            },
+            TerminationReason::ResidualsZero => {
+                "The residuals are literally zero"
+            },
+            TerminationReason::Orthogonal => {
+                "gtol termination criterion fulfilled"
+            },
+            TerminationReason::Converged { ftol, xtol } => {
+                if ftol && !xtol {
+                    "ftol termination criterion fulfilled"
+                } else if !ftol && xtol {
+                    "xtol termination criterion fulfilled"
+                } else {
+                    "ftol and xtol criterion fulfilled"
+                }
+            },
+            TerminationReason::NoImprovementPossible(_) => {
+                "The bound for `ftol`, `xtol` or `gtol` was set so low that \
+                the test passed with the machine epsilon but not with the \
+                actual bound"
+            },
+            TerminationReason::LostPatience => {
+                "Maximum number of function evaluations was hit"
+            },
+            TerminationReason::NoParameters => {
+                "The number of parameters is zero"
+            },
+            TerminationReason::NoResiduals => {
+                "The number of residuals is zero"
+            },
+            TerminationReason::WrongDimensions(_) => {
+                "The shape of the computed residuals or Jacobian is not correct"
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for FitStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.repr())
     }
 }

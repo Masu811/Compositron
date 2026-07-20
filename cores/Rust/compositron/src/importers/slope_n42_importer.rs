@@ -476,7 +476,7 @@ fn import_dbspectrum(
 }
 
 fn parse_detpair(detpair_node: &Node) -> Result<String, N42FormatError> {
-    let name_node = find_node(&detpair_node, "RadDetectorName")?;
+    let name_node = find_node(detpair_node, "RadDetectorName")?;
 
     match name_node.text() {
         Some(text) => Ok(text.to_string()),
@@ -484,6 +484,29 @@ fn parse_detpair(detpair_node: &Node) -> Result<String, N42FormatError> {
             node: name_node.tag_name().name().into(),
         }),
     }
+}
+
+fn parse_window(params: &Node, param: &str) -> Result<usize, N42FormatError> {
+    let param_node = find_node(&params, param)?;
+
+    let Some(param_text) = param_node.text() else {
+        return Err(N42FormatError::EmptyFieldError { node: param.into() });
+    };
+
+    Ok(param_text.parse::<usize>()?)
+}
+
+fn get_window(
+    detpair_node: &Node
+) -> Result<((usize, usize), (usize, usize)), N42FormatError> {
+    let params = find_node(detpair_node, "CoincidenceParameters")?;
+
+    let offset_x = parse_window(&params, "OffsetX")?;
+    let offset_y = parse_window(&params, "OffsetY")?;
+    let dim_x = parse_window(&params, "DimensionX")?;
+    let dim_y = parse_window(&params, "DimensionY")?;
+
+    Ok(((offset_x, offset_x + dim_x), (offset_y, offset_y + dim_y)))
 }
 
 fn get_ecal(
@@ -575,9 +598,14 @@ fn import_cdbspectrum(
         });
     }
 
-    let ecal = get_or_parse_c_ecal(
+    let mut ecal = get_or_parse_c_ecal(
         detpair_node, detectors, parsed_detnames, m,
     )?;
+
+    let window = get_window(&detpair_node)?;
+
+    ecal.0.0 += window.0.0 as f64 * ecal.0.1;
+    ecal.1.0 += window.1.0 as f64 * ecal.1.1;
 
     let spectrum = parse_cdbspectrum(spectrum_node, path)?;
 

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::constants::FWHM_OVER_SIGMA;
 use crate::core::utils::{spectrum_match, Spectrum};
-use crate::core::fitting::FitParam;
+use crate::core::fitting::{FitParam, LMFitError, VarproFitError};
 use crate::dbs::fitting::fit_gaussian;
 use crate::pals::fitting::{fit_lifetime_spectrum, FitResult};
 use crate::pals::model::*;
@@ -10,15 +10,15 @@ use crate::pals::model::*;
 #[derive(Debug, Error)]
 pub enum AnalysisError {
     #[error("")]
-    PALSFitError {
+    LMFitError {
         #[from]
-        source: crate::pals::fitting::FitError
+        source: LMFitError
     },
 
     #[error("")]
-    FitError {
+    VarproFitError {
         #[from]
-        source: crate::core::fitting::FitError
+        source: VarproFitError
     },
 }
 

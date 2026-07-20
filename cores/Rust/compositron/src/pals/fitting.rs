@@ -2,12 +2,11 @@ use std::collections::HashMap;
 
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use statrs::function::erf::erfc;
-use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt, TerminationReason};
-use thiserror::Error;
+use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 
 use crate::constants::{FWHM_OVER_SIGMA, SQRT_2, SQRT_2PI};
 use crate::pals::model::LifetimeModel;
-use crate::core::fitting::FitParam;
+use crate::core::fitting::{FitParam, FitStatus, LMFitError};
 
 enum ParamType {
     Varied(usize),
@@ -769,76 +768,13 @@ pub struct FitResult {
     pub cov: Option<DMatrix<f64>>,
 }
 
-#[derive(Debug, Error)]
-pub enum FitError {
-    #[error("Fit failed: {info}")]
-    Failure {
-        info: String,
-    },
-}
-
-pub struct FitStatus {
-    termination: TerminationReason,
-}
-
-impl FitStatus {
-    pub fn repr(&self) -> &str {
-        match self.termination {
-            TerminationReason::User(_) => {
-                "The residual or Jacobian computation failed"
-            },
-            TerminationReason::Numerical(_) => {
-                "Encountered NaN or inf"
-            },
-            TerminationReason::ResidualsZero => {
-                "The residuals are literally zero"
-            },
-            TerminationReason::Orthogonal => {
-                "gtol termination criterion fulfilled"
-            },
-            TerminationReason::Converged { ftol, xtol } => {
-                if ftol && !xtol {
-                    "ftol termination criterion fulfilled"
-                } else if !ftol && xtol {
-                    "xtol termination criterion fulfilled"
-                } else {
-                    "ftol and xtol criterion fulfilled"
-                }
-            },
-            TerminationReason::NoImprovementPossible(_) => {
-                "The bound for `ftol`, `xtol` or `gtol` was set so low that \
-                the test passed with the machine epsilon but not with the \
-                actual bound"
-            },
-            TerminationReason::LostPatience => {
-                "Maximum number of function evaluations was hit"
-            },
-            TerminationReason::NoParameters => {
-                "The number of parameters is zero"
-            },
-            TerminationReason::NoResiduals => {
-                "The number of residuals is zero"
-            },
-            TerminationReason::WrongDimensions(_) => {
-                "The shape of the computed residuals or Jacobian is not correct"
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for FitStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.repr())
-    }
-}
-
 pub fn fit_lifetime_spectrum(
     x: &[f64],
     y: &[f64],
     mut model: LifetimeModel,
     counts: f64,
     peak_center: f64,
-) -> Result<FitResult, FitError> {
+) -> Result<FitResult, LMFitError> {
     let (last_l_vary_idx, last_r_vary_idx) = prepare_fit(
         &mut model, x, counts, peak_center
     );
@@ -867,7 +803,7 @@ pub fn fit_lifetime_spectrum(
     let fit_status = FitStatus { termination: report.termination };
 
     if !fit_status.termination.was_successful() {
-        return Err(FitError::Failure { info: fit_status.repr().into() });
+        return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
     let red_chi2 = compute_red_chi2(&problem);

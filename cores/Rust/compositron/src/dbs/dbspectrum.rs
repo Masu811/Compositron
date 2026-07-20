@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::constants::M_E_KEV;
 use crate::core::utils::{spectrum_match, LossyIntoF64, Spectrum};
-use crate::core::fitting;
+use crate::core::fitting::{self, VarproFitError};
 use crate::dbs::fitting::*;
 
 // NOTE:
@@ -39,7 +39,7 @@ pub enum AnalysisError {
     #[error("Error during fitting")]
     FitError {
         #[from]
-        inner: fitting::FitError,
+        inner: VarproFitError,
     },
 }
 
@@ -123,12 +123,12 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
     LineshapeParamDefinition::PeakSym {
         name: "S",
         num_width: 1.,
-        denom_width: 30.,
+        denom_width: 20.,
     },
     LineshapeParamDefinition::PeakAsym {
         name: "W",
         num_width: 1.,
-        denom_width: 30.,
+        denom_width: 20.,
         num_dist: 3.,
         denom_dist: 0.,
         num_side: PeakLineshapeParamEvalSide::Both,
@@ -136,12 +136,12 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
     },
     LineshapeParamDefinition::Spectrum {
         name: "V/P",
-        num_bnds: (510., 512.),
-        denom_bnds: (481., 541.),
+        num_bnds: (400., 500.),
+        denom_bnds: (501., 521.),
     },
     LineshapeParamDefinition::Spectrum {
         name: "P/T",
-        num_bnds: (510., 512.),
+        num_bnds: (501., 521.),
         denom_bnds: (f64::NEG_INFINITY, f64::INFINITY),
     },
 ];
@@ -329,17 +329,21 @@ impl DBSpectrum {
 
         let c = self.peak_params.get("x0_1").unwrap().val;
 
+        let mut ecal = self.ecal;
+
         match order {
             EcalCorrectionOrder::Zeroth => {
-                self.ecal.0 += M_E_KEV - c;
+                ecal.0 += M_E_KEV - c;
             },
             EcalCorrectionOrder::First => {
-                self.ecal.1 *= (M_E_KEV - self.ecal.0) / (c - self.ecal.0);
+                ecal.1 *= (M_E_KEV - ecal.0) / (c - ecal.0);
             },
             EcalCorrectionOrder::None => unreachable!(),
         }
 
-        Ok(self.ecal)
+        self.corrected_ecal = Some(ecal);
+
+        Ok(ecal)
     }
 
     fn integrate<T: LossyIntoF64>(
