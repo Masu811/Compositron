@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+agg-rust = "1.1.0"
 levenberg-marquardt = "0.15.0"
 nalgebra = "0.34.2"
 num-traits = "0.2.19"
