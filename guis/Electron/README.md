@@ -11,6 +11,11 @@ To install all node dependencies, run
 npm install
 ```
 
+If your npm config disallows git dependencies, run
+```bash
+npm install --allow-git=all
+```
+
 To bundle and run the app, run
 ```bash
 npm run electron
