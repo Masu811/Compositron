@@ -1,4 +1,6 @@
 pub const M_E_KEV: f64 = 510.9989506917531;
+pub const TWO_M_E_KEV: f64 = 2. * M_E_KEV;
+pub const KEV_PER_M0C: f64 = 0.5 * M_E_KEV;
 
 pub const FWHM_OVER_SIGMA: f64 = 2.3548200450309493;
 

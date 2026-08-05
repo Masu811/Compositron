@@ -11,7 +11,7 @@ use roxmltree::Node;
 use crate::dbs::DBSpectrum;
 use crate::cdbs::CDBSpectrum;
 use crate::core::Measurement;
-use crate::core::utils::{Spectrum, Spectrum2D};
+use crate::core::utils::{EnergyDetector, EnergyDetectorPair, LinearCalibration, Spectrum, Spectrum2D};
 use crate::importers::png_importer;
 
 #[derive(Debug, Error)]
@@ -386,8 +386,8 @@ fn get_or_parse_detname(
 fn get_or_parse_ecal(
     ecal_id: &str,
     ecals: &HashMap<String, Node>,
-    parsed_ecals: &mut HashMap<String, (f64, f64)>,
-) -> Result<(f64, f64), N42FormatError> {
+    parsed_ecals: &mut HashMap<String, LinearCalibration>,
+) -> Result<LinearCalibration, N42FormatError> {
     if let Some(ecal) = parsed_ecals.get(ecal_id) {
         return Ok(ecal.clone());
     }
@@ -422,9 +422,11 @@ fn get_or_parse_ecal(
         return Err(N42FormatError::InvalidEcalFormatError);
     }
 
-    parsed_ecals.insert(ecal_id.into(), (ecal[0], ecal[1]));
+    let ecal = LinearCalibration { offset: ecal[0], scale: ecal[1] };
 
-    Ok((ecal[0], ecal[1]))
+    parsed_ecals.insert(ecal_id.into(), ecal);
+
+    Ok(ecal)
 }
 
 fn parse_spectrum(spectrum_node: &Node) -> Result<Spectrum, N42FormatError> {
@@ -453,7 +455,7 @@ fn import_dbspectrum(
     detectors: &HashMap<String, Node>,
     ecals: &HashMap<String, Node>,
     parsed_detnames: &mut HashMap<String, String>,
-    parsed_ecals: &mut HashMap<String, (f64, f64)>,
+    parsed_ecals: &mut HashMap<String, LinearCalibration>,
     m: &mut Measurement,
 ) -> Result<(), N42FormatError> {
     let det_id = find_attr(spectrum_node, N42Ref::Det.attr())?;
@@ -470,7 +472,14 @@ fn import_dbspectrum(
 
     let spectrum = parse_spectrum(spectrum_node)?;
 
-    m.dbs.insert(detname.clone(), DBSpectrum::new(spectrum, detname, ecal, None));
+    let detector = EnergyDetector {
+        name: detname.clone(),
+        ecal,
+        corrected_ecal: None,
+        eres: None,
+    };
+
+    m.dbs.insert(detname, DBSpectrum::new(spectrum, detector));
 
     Ok(())
 }
@@ -515,13 +524,13 @@ fn get_ecal(
     parsed_detnames: &mut HashMap<String, String>,
     m: &Measurement,
     det_node_name: &str,
-) -> Result<(f64, f64), N42FormatError> {
+) -> Result<LinearCalibration, N42FormatError> {
     let det_node = find_node(detpair_node, det_node_name)?;
     let det_id = find_attr(&det_node, N42Ref::Detpair.attr())?;
     let detname = get_or_parse_detname(det_id, detectors, parsed_detnames)?;
 
     match m.dbs.get(&detname) {
-        Some(spectrum) => Ok(spectrum.ecal),
+        Some(spectrum) => Ok(spectrum.detector.ecal),
         None => {
             Err(N42FormatError::DanglingReferenceError {
                 node: "RadDetector1Name".into(),
@@ -538,7 +547,7 @@ fn get_or_parse_c_ecal(
     detectors: &HashMap<String, Node>,
     parsed_detnames: &mut HashMap<String, String>,
     m: &Measurement,
-) -> Result<((f64, f64), (f64, f64)), N42FormatError> {
+) -> Result<(LinearCalibration, LinearCalibration), N42FormatError> {
     Ok((
         get_ecal(
             detpair_node, detectors, parsed_detnames, m, "RadDetector1Name"
@@ -590,11 +599,11 @@ fn import_cdbspectrum(
         });
     };
 
-    let detpair = parse_detpair(&detpair_node)?;
+    let detpair_name = parse_detpair(&detpair_node)?;
 
-    if m.cdbs.contains_key(&detpair) {
+    if m.cdbs.contains_key(&detpair_name) {
         return Err(N42FormatError::DuplicateNameError {
-            name: detpair.into(),
+            name: detpair_name.into(),
         });
     }
 
@@ -604,12 +613,41 @@ fn import_cdbspectrum(
 
     let window = get_window(&detpair_node)?;
 
-    ecal.0.0 += window.0.0 as f64 * ecal.0.1;
-    ecal.1.0 += window.1.0 as f64 * ecal.1.1;
+    ecal.0.offset += window.0.0 as f64 * ecal.0.scale;
+    ecal.1.offset += window.1.0 as f64 * ecal.1.scale;
+
+    let det_1_node = find_node(detpair_node, "RadDetector1Name")?;
+    let det_1_id = find_attr(&det_1_node, N42Ref::Detpair.attr())?;
+    let det_1_name = get_or_parse_detname(det_1_id, detectors, parsed_detnames)?;
+
+    let det_2_node = find_node(detpair_node, "RadDetector2Name")?;
+    let det_2_id = find_attr(&det_2_node, N42Ref::Detpair.attr())?;
+    let det_2_name = get_or_parse_detname(det_2_id, detectors, parsed_detnames)?;
 
     let spectrum = parse_cdbspectrum(spectrum_node, path)?;
 
-    m.cdbs.insert(detpair.clone(), CDBSpectrum::new(spectrum, detpair, ecal));
+    let first_det = EnergyDetector {
+        name: det_1_name,
+        ecal: ecal.0,
+        corrected_ecal: None,
+        eres: None,
+    };
+
+    let second_det = EnergyDetector {
+        name: det_2_name,
+        ecal: ecal.1,
+        corrected_ecal: None,
+        eres: None,
+    };
+
+    let detpair = EnergyDetectorPair {
+        name: detpair_name.clone(),
+        first_det,
+        second_det,
+        eres: None,
+    };
+
+    m.cdbs.insert(detpair_name, CDBSpectrum::new(spectrum, detpair));
 
     Ok(())
 }
@@ -624,7 +662,7 @@ fn sort_meas_children<'a, 'input>(
     path: &Path,
 ) -> Result<(), N42FormatError> {
 
-    let mut parsed_ecals: HashMap<String, (f64, f64)> = HashMap::new();
+    let mut parsed_ecals: HashMap<String, LinearCalibration> = HashMap::new();
     let mut parsed_detnames: HashMap<String, String> = HashMap::new();
     let mut cdbs_nodes: Vec<Node> = Vec::new();
 

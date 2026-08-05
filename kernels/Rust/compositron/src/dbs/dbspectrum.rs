@@ -1,15 +1,15 @@
+// NOTE:
+// - spectrum counts represent the center of their bins
+// - integration happens in channel space, not in energy space
+
 use std::collections::HashMap;
 
 use thiserror::Error;
 
 use crate::constants::M_E_KEV;
-use crate::core::utils::{spectrum_match, LossyIntoF64, Spectrum};
+use crate::core::utils::{spectrum_match, EnergyDetector, LinearCalibration, LossyIntoF64, Spectrum};
 use crate::core::fitting::{self, VarproFitError};
 use crate::dbs::fitting::*;
-
-// NOTE:
-// - spectrum counts represent the center of their bins
-// - integration happens in channel space, not in energy space
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -157,10 +157,7 @@ enum InputParam {
 
 pub struct DBSpectrum {
     pub spectrum: Spectrum,
-    pub detname: String,
-    pub ecal: (f64, f64),
-    pub corrected_ecal: Option<(f64, f64)>,
-    pub eres: Option<f64>,
+    pub detector: EnergyDetector,
     pub counts: u64,
     pub dcounts: f64,
     pub peak: Option<Vec<f64>>,
@@ -174,9 +171,7 @@ pub struct DBSpectrum {
 impl DBSpectrum {
     pub fn new(
         spectrum: Spectrum,
-        detname: String,
-        ecal: (f64, f64),
-        eres: Option<f64>,
+        detector: EnergyDetector,
     ) -> Self {
         let counts: u64 = spectrum_match!(
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum()
@@ -185,13 +180,10 @@ impl DBSpectrum {
         let dcounts = (counts as f64).sqrt();
 
         DBSpectrum {
-            spectrum: spectrum,
-            detname: detname,
-            ecal: ecal,
-            corrected_ecal: None,
-            eres: eres,
-            counts: counts,
-            dcounts: dcounts,
+            spectrum,
+            detector,
+            counts,
+            dcounts,
             peak_counts: f64::NAN,
             dpeak_counts: f64::NAN,
             peak: None,
@@ -228,12 +220,11 @@ impl DBSpectrum {
     }
 
     fn get_peak_energies(&self) -> Vec<f64> {
-        let ecal = self.corrected_ecal.unwrap_or(self.ecal);
+        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
+
         let bnds = self.peak_bnds.unwrap();
 
-        (bnds.0..=bnds.1)
-            .map(|i| ecal.1 * i as f64 + ecal.0)
-            .collect::<Vec<f64>>()
+        (bnds.0..=bnds.1).map(|i| ecal.from_index(i)).collect::<Vec<f64>>()
     }
 
     fn fit_peak(
@@ -287,15 +278,11 @@ impl DBSpectrum {
     pub fn extract_peak(
         &mut self, peak_width: f64, bg_corr: bool, peak_model: PeakModel,
     ) -> Result<&[f64], AnalysisError> {
-        let ecal = self.corrected_ecal.unwrap_or(self.ecal);
+        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
 
-        let left_peak_idx = (
-            (M_E_KEV - peak_width / 2. - ecal.0) / ecal.1
-        ).round() as usize;
+        let left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2.);
 
-        let right_peak_idx = (
-            (M_E_KEV + peak_width / 2. - ecal.0) / ecal.1
-        ).round() as usize;
+        let right_peak_idx = ecal.to_index_rounded(M_E_KEV + peak_width / 2.);
 
         self.peak_bnds = Some((left_peak_idx, right_peak_idx));
 
@@ -316,9 +303,9 @@ impl DBSpectrum {
 
     pub fn correct_ecal(
         &mut self, order: EcalCorrectionOrder
-    ) -> Result<(f64, f64), AnalysisError> {
+    ) -> Result<LinearCalibration, AnalysisError> {
         if order == EcalCorrectionOrder::None {
-            return Ok(self.ecal);
+            return Ok(self.detector.ecal);
         }
 
         if self.peak == None {
@@ -329,19 +316,19 @@ impl DBSpectrum {
 
         let c = self.peak_params.get("x0_1").unwrap().val;
 
-        let mut ecal = self.ecal;
+        let mut ecal = self.detector.ecal;
 
         match order {
             EcalCorrectionOrder::Zeroth => {
-                ecal.0 += M_E_KEV - c;
+                ecal.offset += M_E_KEV - c;
             },
             EcalCorrectionOrder::First => {
-                ecal.1 *= (M_E_KEV - ecal.0) / (c - ecal.0);
+                ecal.scale *= (M_E_KEV - ecal.offset) / (c - ecal.offset);
             },
             EcalCorrectionOrder::None => unreachable!(),
         }
 
-        self.corrected_ecal = Some(ecal);
+        self.detector.corrected_ecal = Some(ecal);
 
         Ok(ecal)
     }
@@ -447,10 +434,10 @@ impl DBSpectrum {
             });
         }
 
-        let ecal = self.corrected_ecal.unwrap_or(self.ecal);
+        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
 
-        let mut lower_ch_bnd = (lower_bnd - ecal.0) / ecal.1;
-        let mut upper_ch_bnd = (upper_bnd - ecal.0) / ecal.1;
+        let mut lower_ch_bnd = ecal.to_index_f64(lower_bnd);
+        let mut upper_ch_bnd = ecal.to_index_f64(upper_bnd);
 
         if in_corrected_peak {
             let peak_bnds = self.peak_bnds.unwrap();
@@ -512,13 +499,12 @@ impl DBSpectrum {
         }
     }
 
-    fn err_divide(a_n: f64, a_d: f64, a_c: f64) -> (f64, f64) {
-        let val = (a_n + a_c) / (a_d + a_c);
-
+    fn err_divide(num: f64, denom: f64, common: f64) -> (f64, f64) {
+        let val = num / denom;
         let err = val * (
-            a_n / (a_n + a_c).powi(2) +
-            a_d / (a_d + a_c).powi(2) +
-            a_c * ((a_d - a_n) / ((a_d + a_c) * (a_n + a_c))).powi(2)
+            (num - common) / num.powi(2) +
+            (denom - common) / denom.powi(2) +
+            common * ((denom - num) / (denom * num)).powi(2)
         ).sqrt();
 
         (val, err)
@@ -617,10 +603,10 @@ impl DBSpectrum {
             denom_width, denom_dist, denom_side
         );
 
-        let mut num = self.integrate_multiple_areas(
+        let num = self.integrate_multiple_areas(
             &num_bnds, bin_integration_scheme
         )?;
-        let mut denom = self.integrate_multiple_areas(
+        let denom = self.integrate_multiple_areas(
             &denom_bnds, bin_integration_scheme
         )?;
 
@@ -664,9 +650,6 @@ impl DBSpectrum {
             _ => unreachable!(),
         };
 
-        num -= common;
-        denom -= common;
-
         let (val, err) = DBSpectrum::err_divide(num, denom, common);
 
         let p = LineshapeParam::PeakSym {val, err, num_width, denom_width};
@@ -686,19 +669,15 @@ impl DBSpectrum {
         DBSpectrum::check_input(InputParam::NumBounds(num_bnds))?;
         DBSpectrum::check_input(InputParam::DenomBounds(denom_bnds))?;
 
-        let mut num = self.integrate_spectrum(
+        let num = self.integrate_spectrum(
             num_bnds.0, num_bnds.1, false, bin_integration_scheme
         )?;
-        let mut denom = self.integrate_spectrum(
+        let denom = self.integrate_spectrum(
             num_bnds.0, num_bnds.1, false, bin_integration_scheme
         )?;
-
         let common = self.get_overlap(
             num_bnds, denom_bnds, bin_integration_scheme,
         )?;
-
-        num -= common;
-        denom -= common;
 
         let (val, err) = DBSpectrum::err_divide(num, denom, common);
 

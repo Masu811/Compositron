@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use num_traits::Unsigned;
 use thiserror::Error;
 use nalgebra::{DMatrix, DVector};
@@ -25,18 +23,62 @@ pub enum FitError {
     RuntimeError,
 }
 
-#[derive(Debug)]
-pub struct DetectorCalibration {
+#[derive(Debug, Clone, Copy)]
+pub struct LinearCalibration {
     pub offset: f64,
     pub scale: f64,
 }
 
-#[derive(Debug)]
-pub struct CoincDetectorCalibration {
-    pub first_det: Arc<DetectorCalibration>,
-    pub second_det: Arc<DetectorCalibration>,
+impl LinearCalibration {
+    pub fn from_index(&self, index: usize) -> f64 {
+        self.scale * index as f64 + self.offset
+    }
+
+    pub fn from_index_f64(&self, index: f64) -> f64 {
+        self.scale * index + self.offset
+    }
+
+    pub fn to_index_rounded(&self, value: f64) -> usize {
+        ((value - self.offset) / self.scale).round() as usize
+    }
+
+    pub fn to_index_trunc(&self, value: f64) -> usize {
+        ((value - self.offset) / self.scale) as usize
+    }
+
+    pub fn to_index_f64(&self, value: f64) -> f64 {
+        (value - self.offset) / self.scale
+    }
 }
 
+// DBS
+#[derive(Debug, Clone)]
+pub struct EnergyDetector {
+    pub name: String,
+    pub ecal: LinearCalibration,
+    pub corrected_ecal: Option<LinearCalibration>,
+    pub eres: Option<f64>,
+}
+
+// CDBS
+#[derive(Debug, Clone)]
+pub struct EnergyDetectorPair {
+    pub name: String,
+    pub first_det: EnergyDetector,
+    pub second_det: EnergyDetector,
+    pub eres: Option<f64>,
+}
+
+// PALS
+#[derive(Debug, Clone)]
+pub struct TimingDetectorPair {
+    pub name: String,
+    pub tcal: LinearCalibration,
+    pub corrected_tcal: Option<LinearCalibration>,
+    pub tres: Option<f64>,
+}
+
+#[derive(Debug)]
 pub enum Spectrum {
     U8(DVector<u8>),
     U16(DVector<u16>),

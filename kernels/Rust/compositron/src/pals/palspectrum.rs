@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::constants::FWHM_OVER_SIGMA;
-use crate::core::utils::{spectrum_match, Spectrum};
+use crate::core::utils::{spectrum_match, TimingDetectorPair, Spectrum};
 use crate::core::fitting::{FitParam, LMFitError, VarproFitError};
 use crate::dbs::fitting::fit_gaussian;
 use crate::pals::fitting::{fit_lifetime_spectrum, FitResult};
@@ -36,8 +36,7 @@ pub enum ReportError {
 
 pub struct PALSpectrum {
     pub spectrum: Spectrum,
-    pub detpair: String,
-    pub tcal: (f64, f64),
+    pub detpair: TimingDetectorPair,
     pub counts: u64,
     pub dcounts: f64,
     pub name: Option<String>,
@@ -52,8 +51,7 @@ pub struct PALSpectrum {
 impl PALSpectrum {
     pub fn new(
         spectrum: Spectrum,
-        detpair: String,
-        tcal: (f64, f64),
+        detpair: TimingDetectorPair,
     ) -> Self {
         let counts = spectrum_match!(
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum::<u64>()
@@ -63,7 +61,6 @@ impl PALSpectrum {
         PALSpectrum {
             spectrum,
             detpair,
-            tcal,
             counts,
             dcounts,
             name: None,
@@ -76,7 +73,7 @@ impl PALSpectrum {
         }
     }
 
-    fn get_peak_center(&mut self) -> Result<(), AnalysisError> {
+    fn get_peak_center(&mut self) -> Result<f64, AnalysisError> {
         let (argmax, _) = spectrum_match!(
             &self.spectrum, arr => arr
                 .iter()
@@ -109,7 +106,7 @@ impl PALSpectrum {
         self.peak_fwhm = Some(peak_width.val * FWHM_OVER_SIGMA);
         self.dpeak_fwhm = Some(peak_width.err * FWHM_OVER_SIGMA);
 
-        Ok(())
+        Ok(peak_center.val)
     }
 
     pub fn fit(
@@ -118,9 +115,10 @@ impl PALSpectrum {
         fit_start_idx: usize,
         fit_end_idx: usize,
     ) -> Result<(), AnalysisError> {
-        if self.peak_center == None {
-            self.get_peak_center()?;
-        }
+        let peak_center = match self.peak_center {
+            Some(val) => val,
+            None => self.get_peak_center()?
+        };
 
         let roi = fit_start_idx..fit_end_idx;
 
@@ -131,14 +129,16 @@ impl PALSpectrum {
                 .collect::<Vec<f64>>()
         );
 
-        let x = roi.map(|i| self.tcal.0 + i as f64 * self.tcal.1).collect::<Vec<f64>>();
+        let tcal = self.detpair.corrected_tcal.unwrap_or(self.detpair.tcal);
+
+        let x = roi.map(|i| tcal.from_index(i)).collect::<Vec<f64>>();
 
         let fit_result = fit_lifetime_spectrum(
             &x,
             &y,
             model,
             self.counts as f64,
-            self.peak_center.unwrap() * self.tcal.1 + self.tcal.0,
+            tcal.from_index_f64(peak_center),
         )?;
 
         self.fit_result = Some(fit_result);

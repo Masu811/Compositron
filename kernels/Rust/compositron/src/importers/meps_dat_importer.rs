@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::core::Measurement;
 use crate::pals::PALSpectrum;
 use crate::dbs::DBSpectrum;
-use crate::core::utils::Spectrum;
+use crate::core::utils::{EnergyDetector, LinearCalibration, Spectrum, TimingDetectorPair};
 
 #[derive(Debug, Error)]
 pub enum DATFormatError {
@@ -270,9 +270,16 @@ fn import_palspectrum(filepath: &PathBuf, m: &mut Measurement) -> Result<PALSpec
 
     let spectrum = import_spectrum_data(&channel_data)?;
 
-    Ok(PALSpectrum::new(
-        spectrum, "A".into(), (0., 1000. * header_info.bin_width)
-    ))
+    let detpair = TimingDetectorPair {
+        name: "A".into(),
+        tcal: LinearCalibration {
+            offset: 0., scale: 1000. * header_info.bin_width
+        },
+        corrected_tcal: None,
+        tres: None,
+    };
+
+    Ok(PALSpectrum::new(spectrum, detpair))
 }
 
 fn import_params(filepath: &PathBuf, m: &mut Measurement) {
@@ -319,7 +326,14 @@ fn import_ph_spectrum(filepath: &PathBuf) -> Option<DBSpectrum> {
         return None;
     };
 
-    Some(DBSpectrum::new(spectrum, "A".into(), (f64::NAN, f64::NAN), None))
+    let detector = EnergyDetector {
+        name: "".into(),
+        ecal: LinearCalibration { offset: f64::NAN, scale: f64::NAN },
+        corrected_ecal: None,
+        eres: None,
+    };
+
+    Some(DBSpectrum::new(spectrum, detector))
 }
 
 pub fn import_meps_dat(filepath: &str) -> Result<Measurement, ImportError> {
@@ -336,12 +350,12 @@ pub fn import_meps_dat(filepath: &str) -> Result<Measurement, ImportError> {
     import_params(&dir.join(datafiles.param_file), &mut m);
 
     if let Some(mut d1) = import_ph_spectrum(&dir.join(datafiles.start_phs_file)) {
-        d1.detname = "Start".into();
+        d1.detector.name = "Start".into();
         m.dbs.insert("Start".into(), d1);
     }
 
     if let Some(mut d2) = import_ph_spectrum(&dir.join(datafiles.stop_phs_file)) {
-        d2.detname = "Stop".into();
+        d2.detector.name = "Stop".into();
         m.dbs.insert("Stop".into(), d2);
     }
 
