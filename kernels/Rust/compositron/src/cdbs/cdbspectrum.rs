@@ -6,8 +6,8 @@
 //   the second detector spans the columns (x-axis)
 // - CEL: Constant Energy Line
 //   CML: Constant Momentum Line
-// - Energy along CEL: u := (x + y - 1022) / sqrt(2)  (= actual Doppler shift)
-//   Energy along CML: v := (x - y) / sqrt(2)
+// - Energy along CEL: u := (x - y) / 2  (= actual Doppler shift)
+//   Energy along CML: v := (x + y - 1022) / 2
 // - Energy calibrations and energy resolutions are not assumed to be equal,
 //   which means the peak is not assumed to be at 45° in the spectrum, neither
 //   in index space (due to ecal assumption) nor energy space (due to eres
@@ -24,7 +24,7 @@ use crate::cdbs::anti_aliasing::{
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
 use crate::cdbs::fitting::fit_gauss2d;
-use crate::constants::{KEV_PER_M0C, M_E_KEV, ONE_OVER_SQRT_2, TWO_M_E_KEV};
+use crate::constants::{KEV_PER_M0C, M_E_KEV};
 use crate::core::fitting::{self, LMFitError};
 use crate::core::utils::{
     spectrum2d_match, EnergyDetectorPair, LinearCalibration, Spectrum2D
@@ -236,12 +236,12 @@ fn xy_to_ij(x: f64, ecal: LinearCalibration) -> f64 {
 
 #[inline]
 fn xy_to_uv(x: f64, y: f64) -> (f64, f64) {
-    (ONE_OVER_SQRT_2 * (x + y - TWO_M_E_KEV), ONE_OVER_SQRT_2 * (x - y))
+    (0.5 * (x - y), 0.5 * (x + y) - M_E_KEV)
 }
 
 #[inline]
 fn uv_to_xy(u: f64, v: f64) -> (f64, f64) {
-    (M_E_KEV + ONE_OVER_SQRT_2 * (u + v), M_E_KEV + ONE_OVER_SQRT_2 * (u - v))
+    (M_E_KEV + u + v, M_E_KEV - u + v)
 }
 
 #[inline]
@@ -305,14 +305,18 @@ fn convert_ellipse(
     ecal: (LinearCalibration, LinearCalibration),
     peak_bnds: ((usize, usize), (usize, usize)),
 ) -> Ellipse {
-    let w1 = ONE_OVER_SQRT_2 * ecal.1.to_index_f64(radius_cel + radius_cml);
-    let w2 = ONE_OVER_SQRT_2 * ecal.0.to_index_f64(radius_cel - radius_cml);
+    let w1 = (0.5 * (
+        (radius_cel / ecal.1.scale).powi(2) + (radius_cel / ecal.0.scale).powi(2)
+    )).sqrt();
+    let w2 = (0.5 * (
+        (radius_cml / ecal.1.scale).powi(2) + (-radius_cml / ecal.0.scale).powi(2)
+    )).sqrt();
     Ellipse {
         center_i: ecal.0.to_index_f64(M_E_KEV) - peak_bnds.0.0 as f64,
         center_j: ecal.1.to_index_f64(M_E_KEV) - peak_bnds.1.0 as f64,
         radius_i: w1,
         radius_j: w2,
-        phi: (ecal.0.scale / ecal.1.scale).atan(),
+        phi: -(ecal.1.scale / ecal.0.scale).atan(),
     }
 }
 
@@ -592,12 +596,12 @@ impl CDBSpectrum {
 
     fn get_max_projection_length(
         &self,
-        u: f64,
+        v: f64,
         ecal: (LinearCalibration, LinearCalibration),
         peak_bnds: ((usize, usize), (usize, usize)),
     ) -> Option<f64> {
-        let (i1, j1) = uv_to_ij(u, 0., ecal);
-        let (i2, j2) = uv_to_ij(-u, 0., ecal);
+        let (i1, j1) = uv_to_ij(0., v, ecal);
+        let (i2, j2) = uv_to_ij(0., -v, ecal);
         let m = -ecal.1.scale / ecal.0.scale;
         let t1 = i1 - m * j1;
         let t2 = i2 - m * j2;
@@ -620,7 +624,7 @@ impl CDBSpectrum {
 
         [x1, x2, x3, x4, x5, x6, x7, x8]
             .iter()
-            .map(|v| v.1.abs())
+            .map(|v| v.0.abs())
             .min_by(|x, y| x.total_cmp(y))
     }
 
@@ -952,31 +956,31 @@ impl CDBSpectrum {
 
         match bins {
             ProjectionBins::Linear(bins) => {
-                let v_bin = bins.to_kev(self.detpair.eres)?;
-                let Some(v_max) = self.get_max_projection_length(
+                let u_bin = bins.to_kev(self.detpair.eres)?;
+                let Some(u_max) = self.get_max_projection_length(
                     width.to_kev(self.detpair.eres)? / 2., ecal, integral_bnds
                 ) else {
                     return Err(AnalysisError::InvalidBins);
                 };
 
-                let v_max = v_max.min(max_length.to_kev(self.detpair.eres)?);
+                let u_max = u_max.min(max_length.to_kev(self.detpair.eres)?);
 
-                let num_bins = 2 * (v_max / v_bin) as usize;
+                let num_bins = 2 * (u_max / u_bin) as usize;
 
                 if num_bins < 2 {
                     return Err(AnalysisError::InvalidBins);
                 }
 
-                let max_offset = ((num_bins / 2) as f64 - 0.5) * v_bin;
+                let max_offset = ((num_bins / 2) as f64 - 0.5) * u_bin;
 
                 let ecal = LinearCalibration {
-                    offset: -max_offset, scale: v_bin
+                    offset: -max_offset, scale: u_bin
                 };
 
                 let spectrum = DVector::from_vec((0..num_bins)
                     .map(|i| self.integrate(
                         Area::Diagonal {
-                            width_cel: Unit::KeV(v_bin),
+                            width_cel: Unit::KeV(u_bin),
                             width_cml: width,
                             offset_cel: Unit::KeV(ecal.from_index(i)),
                             offset_cml: Unit::KeV(0.),

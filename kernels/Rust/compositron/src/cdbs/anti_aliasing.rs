@@ -134,10 +134,10 @@ impl ConvexToVerticesCounterClockwise for Ellipse {
                 let (s, c) = t.sin_cos();
 
                 Vertex(
-                    self.center_i + self.radius_i * c * cos_phi
-                        - self.radius_j * s * sin_phi,
                     self.center_j + self.radius_i * c * sin_phi
                         + self.radius_j * s * cos_phi,
+                    self.center_i + self.radius_i * c * cos_phi
+                        - self.radius_j * s * sin_phi,
                 )
             })
             .collect()
