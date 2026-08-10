@@ -2,6 +2,8 @@ use num_traits::Unsigned;
 use thiserror::Error;
 use nalgebra::{DMatrix, DVector};
 
+use crate::constants::KEV_PER_M0C;
+
 #[derive(Debug, Error)]
 pub enum FitError {
     #[error("Data contains only NaN values")]
@@ -76,6 +78,33 @@ pub struct TimingDetectorPair {
     pub tcal: LinearCalibration,
     pub corrected_tcal: Option<LinearCalibration>,
     pub tres: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EcalCorrectionOrder {
+    Zeroth,
+    First,
+    None
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Unit {
+    KeV(f64),
+    M0C(f64),
+    Eres(f64),
+}
+
+impl Unit {
+    pub fn to_kev(&self, eres: Option<f64>) -> Option<f64> {
+        match self {
+            Unit::KeV(x) => Some(*x),
+            Unit::M0C(x) => Some(*x * KEV_PER_M0C),
+            Unit::Eres(x) => match eres {
+                Some(eres) => Some(x * eres),
+                None => None,
+            },
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -24,10 +24,11 @@ use crate::cdbs::anti_aliasing::{
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
 use crate::cdbs::fitting::fit_gauss2d;
-use crate::constants::{KEV_PER_M0C, M_E_KEV};
+use crate::constants::M_E_KEV;
 use crate::core::fitting::{self, LMFitError};
 use crate::core::utils::{
-    spectrum2d_match, EnergyDetectorPair, LinearCalibration, Spectrum2D
+    spectrum2d_match, EnergyDetectorPair, LinearCalibration, Spectrum2D,
+    EcalCorrectionOrder, Unit
 };
 use crate::dbs::DBSpectrum;
 
@@ -84,13 +85,6 @@ pub enum AnalysisError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EcalCorrectionOrder {
-    Zeroth,
-    First,
-    None
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BackgroundModel {
     None,
 }
@@ -99,26 +93,6 @@ pub enum BackgroundModel {
 pub enum Axis {
     FirstDetector,
     SecondDetector,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Unit {
-    KeV(f64),
-    M0C(f64),
-    Eres(f64),
-}
-
-impl Unit {
-    pub fn to_kev(&self, eres: Option<f64>) -> Result<f64, AnalysisError> {
-        match self {
-            Unit::KeV(x) => Ok(*x),
-            Unit::M0C(x) => Ok(*x * KEV_PER_M0C),
-            Unit::Eres(x) => match eres {
-                Some(eres) => Ok(x * eres),
-                None => Err(AnalysisError::MissingEnergyResolution),
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -636,10 +610,17 @@ impl CDBSpectrum {
     ) -> Result<Polygon, AnalysisError> {
         match area {
             Area::Diagonal { width_cel, width_cml, offset_cel, offset_cml } => {
-                let mut width_cel = width_cel.to_kev(self.detpair.eres)?;
-                let width_cml = width_cml.to_kev(self.detpair.eres)?;
-                let offset_cel = offset_cel.to_kev(self.detpair.eres)?;
-                let offset_cml = offset_cml.to_kev(self.detpair.eres)?;
+                let (
+                    Some(mut width_cel), Some(width_cml),
+                    Some(offset_cel), Some(offset_cml)
+                ) = (
+                    width_cel.to_kev(self.detpair.eres),
+                    width_cml.to_kev(self.detpair.eres),
+                    offset_cel.to_kev(self.detpair.eres),
+                    offset_cml.to_kev(self.detpair.eres),
+                ) else {
+                    return Err(AnalysisError::MissingEnergyResolution);
+                };
 
                 if width_cel.is_infinite() {
                     width_cel = match self.get_max_projection_length(
@@ -687,8 +668,10 @@ impl CDBSpectrum {
                 ).to_vertices() })
             },
             Area::Ellipse { radius_cel, radius_cml } => {
-                let radius_cel = radius_cel.to_kev(self.detpair.eres)?;
-                let radius_cml = radius_cml.to_kev(self.detpair.eres)?;
+                let radius_cel = radius_cel.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let radius_cml = radius_cml.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
 
                 if !radius_cel.is_finite() || !radius_cml.is_finite() {
                     return Err(AnalysisError::InvalidAreaBounds);
@@ -954,16 +937,23 @@ impl CDBSpectrum {
             ((0, self.spectrum.nrows() - 1), (0, self.spectrum.ncols() - 1))
         };
 
+        let width_kev = width.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+        let max_length_kev = max_length.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
         match bins {
             ProjectionBins::Linear(bins) => {
-                let u_bin = bins.to_kev(self.detpair.eres)?;
+                let u_bin = bins.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
                 let Some(u_max) = self.get_max_projection_length(
-                    width.to_kev(self.detpair.eres)? / 2., ecal, integral_bnds
+                    width_kev / 2., ecal, integral_bnds
                 ) else {
                     return Err(AnalysisError::InvalidBins);
                 };
 
-                let u_max = u_max.min(max_length.to_kev(self.detpair.eres)?);
+                let u_max = u_max.min(max_length_kev);
 
                 let num_bins = 2 * (u_max / u_bin) as usize;
 
@@ -1004,7 +994,10 @@ impl CDBSpectrum {
 
                 let bins_kev = bins
                     .iter()
-                    .map(|x| x.to_kev(self.detpair.eres))
+                    .map(|x| x
+                        .to_kev(self.detpair.eres)
+                        .ok_or(AnalysisError::MissingEnergyResolution)
+                    )
                     .collect::<Result<Vec<_>, _>>()?;
 
                 let mut spectrum = DVector::zeros(bins.len() - 1);

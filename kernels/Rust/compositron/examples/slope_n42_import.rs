@@ -1,5 +1,4 @@
 use compositron::core::{Measurement, measurement::DataFormat};
-use compositron::dbs::dbspectrum::EcalCorrectionOrder;
 
 fn main() -> anyhow::Result<()> {
     let mut m = Measurement::new();
@@ -9,21 +8,20 @@ fn main() -> anyhow::Result<()> {
         DataFormat::SlopeN42
     )?;
 
-    for (_, spec) in &mut m.dbs {
-        spec.analyze(
-            EcalCorrectionOrder::First,
-            60.,
-            true,
-            compositron::dbs::dbspectrum::PeakModel::ErfLinear2Gauss,
-            compositron::dbs::dbspectrum::STD_LINESHAPE_PARAMS,
-            compositron::dbs::dbspectrum::BinIntegrationScheme::Const,
-            false,
-        )?;
-
-        println!("{:?}", spec.peak_params);
-    }
-
     println!("{}", m.shape());
+
+    for (det, spec) in &mut m.dbs {
+        spec.default_analyze()?;
+
+        let s = spec.lineshape_params.get("S").unwrap();
+        let w = spec.lineshape_params.get("W").unwrap();
+        let v = spec.lineshape_params.get("V/P").unwrap();
+
+        println!("{det}:");
+        println!("  S   = {:.3} +/- {:.3}", s.val, s.err);
+        println!("  W   = {:.3} +/- {:.3}", w.val, w.err);
+        println!("  V/P = {:.3} +/- {:.3}", v.val, v.err);
+    }
 
     Ok(())
 }

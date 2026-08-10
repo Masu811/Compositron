@@ -2,7 +2,10 @@ use std::io::Write;
 use std::time::Instant;
 
 use compositron::core::Measurement;
-use compositron::cdbs::cdbspectrum::{Area, LineshapeParamDefinition, ProjectionBins, Unit};
+use compositron::core::utils::{Unit, EcalCorrectionOrder};
+use compositron::cdbs::cdbspectrum::{
+    Area, LineshapeParamDefinition, ProjectionBins
+};
 
 fn main() -> anyhow::Result<()> {
     // Import
@@ -16,7 +19,7 @@ fn main() -> anyhow::Result<()> {
 
     let c = m.cdbs.get_mut("OAA x OAB").unwrap();
 
-    c.correct_ecal(compositron::cdbs::cdbspectrum::EcalCorrectionOrder::First)?;
+    c.correct_ecal(EcalCorrectionOrder::First)?;
 
     // S parameter calculation
 

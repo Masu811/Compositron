@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::constants::M_E_KEV;
-use crate::core::utils::{spectrum_match, EnergyDetector, LinearCalibration, LossyIntoF64, Spectrum};
+use crate::core::utils::{
+    spectrum_match, EnergyDetector, LinearCalibration, LossyIntoF64, Spectrum,
+    EcalCorrectionOrder, Unit
+};
 use crate::core::fitting::{self, VarproFitError};
 use crate::dbs::fitting::*;
 
@@ -30,10 +33,7 @@ pub enum AnalysisError {
     )]
     NoPeakExtracted,
 
-    #[error(
-        "Attempting to integrate areas on both sides of the peak which are \
-        overlapping (area_width > area_dist)"
-    )]
+    #[error("Lineshape numerator or denominator areas overlap")]
     OverlappingAreas,
 
     #[error("Error during fitting")]
@@ -41,13 +41,9 @@ pub enum AnalysisError {
         #[from]
         inner: VarproFitError,
     },
-}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EcalCorrectionOrder {
-    Zeroth,
-    First,
-    None
+    #[error("Could not convert units of eres to keV due to missing eres")]
+    MissingEnergyResolution,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,96 +60,91 @@ pub enum BinIntegrationScheme {
     Linear,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PeakLineshapeParamEvalSide {
-    Both,
-    Left,
-    Right,
-}
-
-#[derive(Debug)]
-pub enum LineshapeParam {
-    PeakSym {
-        val: f64,
-        err: f64,
-        num_width: f64,
-        denom_width: f64,
+#[derive(Debug, Clone, Copy)]
+pub enum Area {
+    Peak {
+        width: Unit,
     },
-    PeakAsym {
-        val: f64,
-        err: f64,
-        num_width: f64,
-        denom_width: f64,
-        num_dist: f64,
-        denom_dist: f64,
-        side: PeakLineshapeParamEvalSide,
+    PeakWithOffset {
+        width: Unit,
+        offset: Unit,
     },
     Spectrum {
-        val: f64,
-        err: f64,
-        num_bnds: (f64, f64),
-        denom_bnds: (f64, f64),
+        left_bnd: f64,
+        right_bnd: f64,
     },
 }
 
+impl Area {
+    pub fn to_bnds_kev(&self, eres: Option<f64>) -> Option<(f64, f64)> {
+        match self {
+            Area::Peak { width } => {
+                let width_kev = width.to_kev(eres)?;
+                Some((M_E_KEV - width_kev / 2., M_E_KEV + width_kev / 2.))
+            },
+            Area::PeakWithOffset { width, offset } => {
+                let width_kev = width.to_kev(eres)?;
+                let offset_kev = offset.to_kev(eres)?;
+                Some((
+                    M_E_KEV - width_kev / 2. + offset_kev,
+                    M_E_KEV + width_kev / 2. + offset_kev
+                ))
+            },
+            Area::Spectrum { left_bnd, right_bnd } => {
+                Some((*left_bnd, *right_bnd))
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LineshapeParam {
+    pub val: f64,
+    pub err: f64,
+    pub num: Vec<Area>,
+    pub denom: Vec<Area>,
+    pub in_corrected_peak: bool,
+}
+
 #[derive(Debug)]
-pub enum LineshapeParamDefinition<'a> {
-    PeakSym {
-        name: &'a str,
-        num_width: f64,
-        denom_width: f64,
-    },
-    PeakAsym {
-        name: &'a str,
-        num_width: f64,
-        denom_width: f64,
-        num_dist: f64,
-        denom_dist: f64,
-        num_side: PeakLineshapeParamEvalSide,
-        denom_side: PeakLineshapeParamEvalSide,
-    },
-    Spectrum {
-        name: &'a str,
-        num_bnds: (f64, f64),
-        denom_bnds: (f64, f64),
-    },
+pub struct LineshapeParamDefinition<'a> {
+    pub name: &'a str,
+    pub num: &'a [Area],
+    pub denom: &'a [Area],
+    pub in_corrected_peak: bool,
 }
 
 pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
-    LineshapeParamDefinition::PeakSym {
+    LineshapeParamDefinition {
         name: "S",
-        num_width: 1.,
-        denom_width: 20.,
+        num: &[Area::Peak { width: Unit::KeV(1.) }],
+        denom: &[Area::Peak { width: Unit::KeV(20.) }],
+        in_corrected_peak: true,
     },
-    LineshapeParamDefinition::PeakAsym {
+    LineshapeParamDefinition {
         name: "W",
-        num_width: 1.,
-        denom_width: 20.,
-        num_dist: 3.,
-        denom_dist: 0.,
-        num_side: PeakLineshapeParamEvalSide::Both,
-        denom_side: PeakLineshapeParamEvalSide::Both,
+        num: &[
+            Area::PeakWithOffset { width: Unit::KeV(1.), offset: Unit::KeV(3.) },
+            Area::PeakWithOffset { width: Unit::KeV(1.), offset: Unit::KeV(-3.) },
+        ],
+        denom: &[Area::Peak { width: Unit::KeV(20.) }],
+        in_corrected_peak: true,
     },
-    LineshapeParamDefinition::Spectrum {
+    LineshapeParamDefinition {
         name: "V/P",
-        num_bnds: (400., 500.),
-        denom_bnds: (501., 521.),
+        num: &[Area::Spectrum { left_bnd: 400., right_bnd: 500. }],
+        denom: &[Area::Spectrum { left_bnd: 501., right_bnd: 521. }],
+        in_corrected_peak: false,
     },
-    LineshapeParamDefinition::Spectrum {
+    LineshapeParamDefinition {
         name: "P/T",
-        num_bnds: (501., 521.),
-        denom_bnds: (f64::NEG_INFINITY, f64::INFINITY),
+        num: &[Area::Spectrum { left_bnd: 501., right_bnd: 521. }],
+        denom: &[Area::Spectrum {
+            left_bnd: f64::NEG_INFINITY, right_bnd: f64::INFINITY
+        }],
+        in_corrected_peak: false,
     },
 ];
-
-enum InputParam {
-    NumWidth(f64),
-    DenomWidth(f64),
-    NumDist(f64),
-    DenomDist(f64),
-    NumBounds((f64, f64)),
-    DenomBounds((f64, f64)),
-}
 
 pub struct DBSpectrum {
     pub spectrum: Spectrum,
@@ -193,28 +184,17 @@ impl DBSpectrum {
         }
     }
 
-    pub fn analyze(
-        &mut self,
-        ecal_corr_order: EcalCorrectionOrder,
-        peak_width: f64,
-        subtract_bg: bool,
-        peak_model: PeakModel,
-        param_definitions: &[LineshapeParamDefinition],
-        bin_integration_scheme: BinIntegrationScheme,
-        save_extracted_peak: bool,
-    ) -> Result<(), AnalysisError> {
-        self.correct_ecal(ecal_corr_order)?;
+    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
+        self.correct_ecal(EcalCorrectionOrder::First)?;
 
-        self.extract_peak(peak_width, subtract_bg, peak_model)?;
+        self.extract_peak(30., true, PeakModel::ErfLinear1Gauss)?;
 
-        for param in param_definitions {
-            self.calc_lineshape_param(param, bin_integration_scheme)?;
+        for param in STD_LINESHAPE_PARAMS {
+            self.calc_lineshape_param(param, BinIntegrationScheme::Const)?;
         }
 
-        if !save_extracted_peak {
-            self.peak = None;
-            self.peak_bnds = None;
-        }
+        self.peak = None;
+        self.peak_bnds = None;
 
         Ok(())
     }
@@ -288,7 +268,7 @@ impl DBSpectrum {
 
         self.peak = Some(spectrum_match!(
             &self.spectrum,
-            arr => arr.rows(left_peak_idx, right_peak_idx - left_peak_idx)
+            arr => arr.rows(left_peak_idx, right_peak_idx - left_peak_idx + 1)
                 .iter()
                 .map(|&x| x as f64)
                 .collect()
@@ -333,18 +313,25 @@ impl DBSpectrum {
         Ok(ecal)
     }
 
-    fn integrate<T: LossyIntoF64>(
+    fn integrate_generic<T: LossyIntoF64>(
         spectrum: &[T],
-        lower_ch_bnd: f64,
-        upper_ch_bnd: f64,
+        mut lower_ch_bnd: f64,
+        mut upper_ch_bnd: f64,
         bin_integration_scheme: BinIntegrationScheme,
     ) -> Result<f64, AnalysisError> {
         // TODO: We could allow for a lower_ch_bdn of >= -0.5
         // but I'm too lazy to deal with this special edge case now
-        if lower_ch_bnd <= 0. && !lower_ch_bnd.is_infinite() {
+        if lower_ch_bnd.is_infinite() {
+            lower_ch_bnd = 0.;
+        }
+        if upper_ch_bnd.is_infinite() {
+            upper_ch_bnd = spectrum.len() as f64 - 1.;
+        }
+
+        if lower_ch_bnd < 0. || lower_ch_bnd > spectrum.len() as f64 - 1. {
             return Err(AnalysisError::OutOfBounds);
         }
-        if upper_ch_bnd >= spectrum.len() as f64 - 1. && !upper_ch_bnd.is_infinite() {
+        if upper_ch_bnd < 0. || upper_ch_bnd > spectrum.len() as f64 - 1. {
             return Err(AnalysisError::OutOfBounds);
         }
 
@@ -416,13 +403,15 @@ impl DBSpectrum {
         Ok(counts)
     }
 
-    pub fn integrate_spectrum(
+    pub fn integrate(
         &self,
-        lower_bnd: f64,
-        upper_bnd: f64,
+        area: Area,
         in_corrected_peak: bool,
         bin_integration_scheme: BinIntegrationScheme,
     ) -> Result<f64, AnalysisError> {
+        let (lower_bnd, upper_bnd) = area.to_bnds_kev(self.detector.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
         if in_corrected_peak && self.peak == None {
             return Err(AnalysisError::NoPeakExtracted);
         }
@@ -444,12 +433,12 @@ impl DBSpectrum {
             lower_ch_bnd -= peak_bnds.0 as f64;
             upper_ch_bnd -= peak_bnds.0 as f64;
             let peak = self.peak.as_ref().unwrap();
-            DBSpectrum::integrate(
+            DBSpectrum::integrate_generic(
                 peak, lower_ch_bnd, upper_ch_bnd, bin_integration_scheme,
             )
         } else {
             spectrum_match!(
-                &self.spectrum, spectrum => DBSpectrum::integrate(
+                &self.spectrum, spectrum => DBSpectrum::integrate_generic(
                     spectrum.as_slice(),
                     lower_ch_bnd,
                     upper_ch_bnd,
@@ -459,233 +448,22 @@ impl DBSpectrum {
         }
     }
 
-    fn check_input(input: InputParam) -> Result<(), AnalysisError> {
-        let violation = match input {
-            InputParam::NumWidth(x) => x <= 0.,
-            InputParam::DenomWidth(x) => x <= 0.,
-            InputParam::NumDist(x) => x < 0.,
-            InputParam::DenomDist(x) => x < 0.,
-            InputParam::NumBounds((x, y)) => y <= x,
-            InputParam::DenomBounds((x, y)) => y <= x,
-        };
+    fn get_area_bnds(&self, areas: &[Area]) -> Result<Vec<(f64, f64)>, AnalysisError> {
+        let bnds = areas
+            .iter()
+            .map(|area| area.to_bnds_kev(self.detector.eres))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
 
-        if violation {
-            let msg = match input {
-                InputParam::NumWidth(x) => {
-                    format!("num_width > 0 (got {x})")
-                },
-                InputParam::DenomWidth(x) => {
-                    format!("denom_width > 0 (got {x})")
-                },
-                InputParam::NumDist(x) => {
-                    format!("num_dist >= 0 (got {x})")
-                },
-                InputParam::DenomDist(x) => {
-                    format!("denom_dist >= 0 (got {x})")
-                },
-                InputParam::NumBounds((x, y)) => {
-                    format!("num_bnds.0 < num_bnds.1 (got {x} < {y})")
-                },
-                InputParam::DenomBounds((x, y)) => {
-                    format!("denom_bnds.0 < denom_bnds.1 (got {x} < {y})")
-                },
-            };
-
-            Err(AnalysisError::InputError {
-                violated_constraint: msg.into()
-            })
-        } else {
-            Ok(())
-        }
-    }
-
-    fn err_divide(num: f64, denom: f64, common: f64) -> (f64, f64) {
-        let val = num / denom;
-        let err = val * (
-            (num - common) / num.powi(2) +
-            (denom - common) / denom.powi(2) +
-            common * ((denom - num) / (denom * num)).powi(2)
-        ).sqrt();
-
-        (val, err)
-    }
-
-    fn get_area_bnds(
-        width: f64,
-        dist: f64,
-        side: PeakLineshapeParamEvalSide,
-    ) -> Vec<f64> {
-        let half_width = width / 2.;
-        match side {
-            PeakLineshapeParamEvalSide::Left => {
-                let mid = M_E_KEV - dist - half_width;
-                vec![mid - half_width, mid + half_width]
-            },
-            PeakLineshapeParamEvalSide::Right => {
-                let mid = M_E_KEV + dist + half_width;
-                vec![mid - half_width, mid + half_width]
-            },
-            PeakLineshapeParamEvalSide::Both => {
-                if dist == 0. {
-                    let mid = M_E_KEV;
-                    vec![mid - width, mid + width]
-                } else {
-                    let mid_l = M_E_KEV - dist - half_width;
-                    let mid_r = M_E_KEV + dist + half_width;
-                    vec![
-                        mid_l - half_width, mid_l + half_width,
-                        mid_r - half_width, mid_r + half_width,
-                    ]
+        for i in 0..areas.len() - 1 {
+            for j in i + 1..areas.len() {
+                if !(bnds[i].1 < bnds[j].0 || bnds[j].1 < bnds[i].0) {
+                    return Err(AnalysisError::OverlappingAreas);
                 }
-            },
-        }
-    }
-
-    fn get_overlap(
-        &self,
-        bnds_a: (f64, f64),
-        bnds_b: (f64, f64),
-        bin_integration_scheme: BinIntegrationScheme,
-    ) -> Result<f64, AnalysisError> {
-        let common_bnds = [bnds_a.0.max(bnds_b.0), bnds_a.1.min(bnds_b.1)];
-
-        if common_bnds[0] < common_bnds[1] {
-            Ok(self.integrate_multiple_areas(
-                &common_bnds, bin_integration_scheme
-            )?)
-        } else {
-            Ok(0.)
-        }
-    }
-
-    fn integrate_multiple_areas(
-        &self,
-        bnds: &[f64],
-        bin_integration_scheme: BinIntegrationScheme,
-    ) -> Result<f64, AnalysisError> {
-        let mut area = self.integrate_spectrum(
-            bnds[0], bnds[1], true, bin_integration_scheme
-        )?;
-
-        if bnds.len() == 4 {
-            area += self.integrate_spectrum(
-                bnds[2], bnds[3], true, bin_integration_scheme
-            )?;
+            }
         }
 
-        Ok(area)
-    }
-
-    fn calc_peak_param(
-        &mut self,
-        name: &str,
-        num_width: f64,
-        denom_width: f64,
-        num_dist: f64,
-        denom_dist: f64,
-        num_side: PeakLineshapeParamEvalSide,
-        denom_side: PeakLineshapeParamEvalSide,
-        bin_integration_scheme: BinIntegrationScheme,
-    ) -> Result<&LineshapeParam, AnalysisError> {
-        if self.peak == None {
-            return Err(AnalysisError::NoPeakExtracted);
-        }
-
-        DBSpectrum::check_input(InputParam::NumWidth(num_width))?;
-        DBSpectrum::check_input(InputParam::DenomWidth(denom_width))?;
-        DBSpectrum::check_input(InputParam::NumDist(num_dist))?;
-        DBSpectrum::check_input(InputParam::DenomDist(denom_dist))?;
-
-        let num_bnds = DBSpectrum::get_area_bnds(
-            num_width, num_dist, num_side
-        );
-        let denom_bnds = DBSpectrum::get_area_bnds(
-            denom_width, denom_dist, denom_side
-        );
-
-        let num = self.integrate_multiple_areas(
-            &num_bnds, bin_integration_scheme
-        )?;
-        let denom = self.integrate_multiple_areas(
-            &denom_bnds, bin_integration_scheme
-        )?;
-
-        let common: f64 = match (num_bnds.len(), denom_bnds.len()) {
-            (2, 2) => {
-                self.get_overlap(
-                    (num_bnds[0], num_bnds[1]),
-                    (denom_bnds[0], denom_bnds[1]),
-                    bin_integration_scheme,
-                )?
-            },
-            (4, 2) => {
-                self.get_overlap(
-                    (num_bnds[0], num_bnds[1]),
-                    (denom_bnds[0], denom_bnds[1]),
-                    bin_integration_scheme,
-                )? + self.get_overlap(
-                    (num_bnds[2], num_bnds[3]),
-                    (denom_bnds[0], denom_bnds[1]),
-                    bin_integration_scheme,
-                )?
-            },
-            (2, 4) => {
-                self.get_overlap(
-                    (num_bnds[0], num_bnds[1]),
-                    (denom_bnds[0], denom_bnds[1]),
-                    bin_integration_scheme,
-                )? + self.get_overlap(
-                    (num_bnds[0], num_bnds[1]),
-                    (denom_bnds[2], denom_bnds[3]),
-                    bin_integration_scheme,
-                )?
-            },
-            (4, 4) => {
-                2. * self.get_overlap(
-                    (num_bnds[0], num_bnds[1]),
-                    (denom_bnds[0], denom_bnds[1]),
-                    bin_integration_scheme,
-                )?
-            },
-            _ => unreachable!(),
-        };
-
-        let (val, err) = DBSpectrum::err_divide(num, denom, common);
-
-        let p = LineshapeParam::PeakSym {val, err, num_width, denom_width};
-
-        self.lineshape_params.insert(name.into(), p);
-
-        Ok(self.lineshape_params.get(name).unwrap())
-    }
-
-    fn calc_spectrum_param(
-        &mut self,
-        name: &str,
-        num_bnds: (f64, f64),
-        denom_bnds: (f64, f64),
-        bin_integration_scheme: BinIntegrationScheme,
-    ) -> Result<&LineshapeParam, AnalysisError> {
-        DBSpectrum::check_input(InputParam::NumBounds(num_bnds))?;
-        DBSpectrum::check_input(InputParam::DenomBounds(denom_bnds))?;
-
-        let num = self.integrate_spectrum(
-            num_bnds.0, num_bnds.1, false, bin_integration_scheme
-        )?;
-        let denom = self.integrate_spectrum(
-            num_bnds.0, num_bnds.1, false, bin_integration_scheme
-        )?;
-        let common = self.get_overlap(
-            num_bnds, denom_bnds, bin_integration_scheme,
-        )?;
-
-        let (val, err) = DBSpectrum::err_divide(num, denom, common);
-
-        let p = LineshapeParam::Spectrum { val, err, num_bnds, denom_bnds };
-
-        self.lineshape_params.insert(name.into(), p);
-
-        Ok(self.lineshape_params.get(name).unwrap())
+        Ok(bnds)
     }
 
     pub fn calc_lineshape_param(
@@ -693,42 +471,60 @@ impl DBSpectrum {
         definition: &LineshapeParamDefinition,
         bin_integration_scheme: BinIntegrationScheme,
     ) -> Result<&LineshapeParam, AnalysisError> {
-        match definition {
-            &LineshapeParamDefinition::PeakSym {
-                name, num_width, denom_width
-            } => {
-                self.calc_peak_param(
-                    name,
-                    num_width,
-                    denom_width,
-                    0.,
-                    0.,
-                    PeakLineshapeParamEvalSide::Both,
-                    PeakLineshapeParamEvalSide::Both,
-                    bin_integration_scheme,
-                )
-            },
-            &LineshapeParamDefinition::PeakAsym {
-                name, num_width, denom_width, num_dist, denom_dist, num_side, denom_side
-            } => {
-                self.calc_peak_param(
-                    name,
-                    num_width,
-                    denom_width,
-                    num_dist,
-                    denom_dist,
-                    num_side,
-                    denom_side,
-                    bin_integration_scheme,
-                )
-            },
-            &LineshapeParamDefinition::Spectrum {
-                name, num_bnds, denom_bnds
-            } => {
-                self.calc_spectrum_param(
-                    name, num_bnds, denom_bnds, bin_integration_scheme
-                )
-            },
+        let num_bnds = self.get_area_bnds(definition.num)?;
+        let denom_bnds = self.get_area_bnds(definition.denom)?;
+
+        let num = definition.num
+            .iter()
+            .map(|&area| self.integrate(
+                area, definition.in_corrected_peak, bin_integration_scheme
+            ))
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .sum::<f64>();
+
+        let denom = definition.denom
+            .iter()
+            .map(|&area| self.integrate(
+                area, definition.in_corrected_peak, bin_integration_scheme
+            ))
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .sum::<f64>();
+
+        let mut common = 0.;
+
+        for num_bnd in num_bnds.iter() {
+            for denom_bnd in denom_bnds.iter() {
+                let left_bnd = num_bnd.0.max(denom_bnd.0);
+                let right_bnd = num_bnd.1.min(denom_bnd.1);
+                if left_bnd < right_bnd {
+                    common += self.integrate(
+                        Area::Spectrum { left_bnd, right_bnd },
+                        definition.in_corrected_peak,
+                        bin_integration_scheme,
+                    )?;
+                }
+            }
         }
+
+        let val = num / denom;
+        let err = val * (
+            (num - common) / num.powi(2) +
+            (denom - common) / denom.powi(2) +
+            common * ((denom - num) / (denom * num)).powi(2)
+        ).sqrt();
+
+        let ls_param = LineshapeParam {
+            val,
+            err,
+            num: definition.num.to_owned(),
+            denom: definition.denom.to_owned(),
+            in_corrected_peak: definition.in_corrected_peak,
+        };
+
+        self.lineshape_params.insert(definition.name.into(), ls_param);
+
+        Ok(self.lineshape_params.get(definition.name).unwrap())
     }
 }
