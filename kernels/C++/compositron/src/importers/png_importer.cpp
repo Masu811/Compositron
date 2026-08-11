@@ -11,7 +11,9 @@ extern "C" {
 #include <format>
 #include <utility>
 
+
 namespace compositron::importers {
+
 
 Array2D import_png(const std::string& filename) {
     int width, height, channels;
@@ -56,5 +58,6 @@ Array2D import_png(const std::string& filename) {
         static_cast<size_t>(width), static_cast<size_t>(height), data
     };
 }
+
 
 } // namespace compositron::importers

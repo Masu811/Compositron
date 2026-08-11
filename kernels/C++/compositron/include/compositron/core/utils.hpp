@@ -1,131 +1,227 @@
 #pragma once
 
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <optional>
+#include <variant>
 #include <vector>
-#include <tuple>
 #include <cassert>
+
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Dense>
+
 
 namespace compositron::core::utils {
 
-// class Spectrum
 
-class SpectrumBase { };
-
-template<typename T>
-class Spectrum : public SpectrumBase {
-private:
-    std::vector<T> _data;
-
+class LinearCalibration {
 public:
-    Spectrum() = delete;
+    double offset;
+    double scale;
 
-    Spectrum(std::vector<T>&& data) {
-        _data = data;
-    }
-
-    const std::vector<T>& data() const {
-        return _data;
-    }
-
-    size_t size() const{
-        return _data.size();
-    }
-
-    T& operator[](size_t i) {
-        return _data[i];
-    }
+    double from_index(size_t index);
+    double from_index(double index);
+    size_t to_index(double value);
+    size_t to_index_rounded(double value);
+    double to_float_index(double value);
 };
 
-typedef std::unique_ptr<SpectrumBase> SpectrumPtr;
 
-template<typename T>
-SpectrumPtr toMinTypeSpectrum(const std::vector<T>& data) {
-    auto max = std::max_element(data.begin(), data.end());
+// DBS detector
+struct EnergyDetector {
+    std::string name;
+    LinearCalibration ecal;
+    std::optional<LinearCalibration> corrected_ecal;
+    double eres;
+};
 
-    if (*max <= UINT8_MAX) {
-        return std::make_unique<Spectrum<uint8_t>>(
-            std::vector<uint8_t>(data.begin(), data.end())
-        );
-    } else if (*max <= UINT16_MAX) {
-        return std::make_unique<Spectrum<uint16_t>>(
-            std::vector<uint16_t>(data.begin(), data.end())
-        );
-    } else if (*max <= UINT32_MAX) {
-        return std::make_unique<Spectrum<uint32_t>>(
-            std::vector<uint32_t>(data.begin(), data.end())
-        );
-    } else if (*max <= UINT64_MAX) {
-        return std::make_unique<Spectrum<uint64_t>>(
-            std::vector<uint64_t>(data.begin(), data.end())
-        );
+
+// CDBS detector
+struct EnergyDetectorPair {
+    std::string name;
+    EnergyDetector first_det;
+    EnergyDetector second_det;
+    double eres;
+};
+
+
+// PALS detector
+struct TimingDetectorPair {
+    std::string name;
+    LinearCalibration tcal;
+    std::optional<LinearCalibration> corrected_tcal;
+    double tres;
+};
+
+
+enum UnitType {
+    KEV,
+    M0C,
+    ERES,
+};
+
+
+class Unit {
+public:
+    UnitType type;
+    double value;
+
+    Unit(double value, UnitType type) : type(type), value(value) {}
+
+    std::optional<double> to_kev(std::optional<double> eres);
+};
+
+
+enum EcalCorrectionOrder {
+    ZEROTH,
+    FIRST,
+    NONE,
+};
+
+
+using SpectrumData = std::variant<
+    Eigen::VectorX<std::uint8_t>,
+    Eigen::VectorX<std::uint16_t>,
+    Eigen::VectorX<std::uint32_t>,
+    Eigen::VectorX<std::uint64_t>
+>;
+
+
+class Spectrum {
+public:
+    SpectrumData data;
+
+    Spectrum() = delete;
+
+    template <typename T>
+    Spectrum(std::vector<T>& vec_data) {
+        auto max = std::max_element(vec_data.begin(), vec_data.end());
+
+        if (*max <= UINT8_MAX) {
+            data = Eigen::VectorX<uint8_t>(
+                Eigen::Map<Eigen::VectorX<std::uint8_t>>(
+                    std::vector<uint8_t>(vec_data.begin(), vec_data.end()).data(),
+                    vec_data.size()
+                )
+            );
+        } else if (*max <= UINT16_MAX) {
+            data = Eigen::VectorX<uint16_t>(
+                Eigen::Map<Eigen::VectorX<std::uint16_t>>(
+                    std::vector<uint16_t>(vec_data.begin(), vec_data.end()).data(),
+                    vec_data.size()
+                )
+            );
+        } else if (*max <= UINT32_MAX) {
+            data = Eigen::VectorX<uint32_t>(
+                Eigen::Map<Eigen::VectorX<std::uint32_t>>(
+                    std::vector<uint32_t>(vec_data.begin(), vec_data.end()).data(),
+                    vec_data.size()
+                )
+            );
+        } else if (*max <= UINT64_MAX) {
+            data = Eigen::VectorX<uint64_t>(
+                Eigen::Map<Eigen::VectorX<std::uint64_t>>(
+                    std::vector<uint64_t>(vec_data.begin(), vec_data.end()).data(),
+                    vec_data.size()
+                )
+            );
+        } else {
+            throw std::range_error(
+                "Greater than 64 bit uint values are not supported"
+            );
+        }
     }
 
-    throw std::range_error("Greater than 64 bit uint values are not supported");
-}
+    std::size_t size() const;
+};
 
-// class Spectrum 2D
 
-class Spectrum2DBase { };
+enum StorageOrder {
+    COLMAJ,
+    ROWMAJ
+};
 
-template<typename T>
-class Spectrum2D : public Spectrum2DBase {
+
+using Spectrum2DData = std::variant<
+    Eigen::MatrixX<std::uint8_t>,
+    Eigen::MatrixX<std::uint16_t>,
+    Eigen::MatrixX<std::uint32_t>,
+    Eigen::MatrixX<std::uint64_t>
+>;
+
+
+class Spectrum2D {
 private:
-    std::tuple<size_t, size_t> _shape;
-    std::vector<T> _data;
+    Spectrum2DData data;
+
+private:
+    template <typename T>
+    Eigen::MatrixX<T> convertSpectrum(
+        std::vector<T>&& vec_data,
+        size_t nrows,
+        size_t ncols,
+        StorageOrder order
+    ) {
+        using Eigen::Dynamic;
+        using Eigen::ColMajor;
+        using Eigen::RowMajor;
+
+        if (order == StorageOrder::ROWMAJ) {
+            return Eigen::Matrix<T, Dynamic, Dynamic, ColMajor>(
+                Eigen::Map<Eigen::Matrix<T, Dynamic, Dynamic, RowMajor>>(
+                    vec_data.data(), nrows, ncols
+                )
+            );
+        }
+
+        return Eigen::Matrix<T, Dynamic, Dynamic, ColMajor>(
+            Eigen::Map<Eigen::Matrix<T, Dynamic, Dynamic, ColMajor>>(
+                vec_data.data(), nrows, ncols
+            )
+        );
+    }
 
 public:
     Spectrum2D() = delete;
 
-    Spectrum2D(std::vector<T>&& data, std::tuple<size_t, size_t> shape) {
-        auto [n_rows, n_cols] = shape;
-        assert(data.size() == n_rows * n_cols);
-        _shape = shape;
-        _data = data;
+    template <typename T>
+    Spectrum2D(
+        std::vector<T>& vec_data,
+        size_t nrows,
+        size_t ncols,
+        StorageOrder order
+    ) {
+        auto max = std::max_element(vec_data.begin(), vec_data.end());
+
+        if (*max <= UINT8_MAX) {
+            data = convertSpectrum<std::uint8_t>(
+                std::vector<uint8_t>(vec_data.begin(), vec_data.end()),
+                nrows, ncols, order
+            );
+        } else if (*max <= UINT16_MAX) {
+            data = convertSpectrum<std::uint16_t>(
+                std::vector<uint16_t>(vec_data.begin(), vec_data.end()),
+                nrows, ncols, order
+            );
+        } else if (*max <= UINT32_MAX) {
+            data = convertSpectrum<std::uint32_t>(
+                std::vector<uint32_t>(vec_data.begin(), vec_data.end()),
+                nrows, ncols, order
+            );
+        } else if (*max <= UINT64_MAX) {
+            data = convertSpectrum<std::uint64_t>(
+                std::vector<uint64_t>(vec_data.begin(), vec_data.end()),
+                nrows, ncols, order
+            );
+        } else {
+            throw std::range_error(
+                "Greater than 64 bit uint values are not supported"
+            );
+        }
     }
 
-    const std::vector<T>& data() const {
-        return _data;
-    }
-
-    std::tuple<size_t, size_t> shape() const {
-        return _shape;
-    }
-
-    T& operator()(size_t i, size_t j) {
-        auto [n_rows, n_cols] = _shape;
-        return _data[i * n_cols + j];
-    }
+    std::size_t size() const;
 };
 
-typedef std::unique_ptr<Spectrum2DBase> Spectrum2DPtr;
-
-template<typename T>
-Spectrum2DPtr toMinTypeSpectrum2D(
-    const std::vector<T>& data, std::tuple<size_t, size_t> shape
-) {
-    auto max = std::max_element(data.begin(), data.end());
-
-    if (*max <= UINT8_MAX) {
-        return std::make_unique<Spectrum2D<uint8_t>>(
-            std::vector<uint8_t>(data.begin(), data.end()), shape
-        );
-    } else if (*max <= UINT16_MAX) {
-        return std::make_unique<Spectrum2D<uint16_t>>(
-            std::vector<uint16_t>(data.begin(), data.end()), shape
-        );
-    } else if (*max <= UINT32_MAX) {
-        return std::make_unique<Spectrum2D<uint32_t>>(
-            std::vector<uint32_t>(data.begin(), data.end()), shape
-        );
-    } else if (*max <= UINT64_MAX) {
-        return std::make_unique<Spectrum2D<uint64_t>>(
-            std::vector<uint64_t>(data.begin(), data.end()), shape
-        );
-    }
-
-    throw std::range_error("Greater than 64 bit uint values are not supported");
-}
 
 } // namespace compositron::core::utils

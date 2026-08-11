@@ -1,16 +1,19 @@
 #pragma once
 
-#include "compositron/dbs/dbspectrum.hpp"
-#include "compositron/cdbs/cdbspectrum.hpp"
-
 #include <ostream>
 #include <string>
 #include <map>
 #include <unordered_map>
 
+#include "compositron/dbs/dbspectrum.hpp"
+#include "compositron/cdbs/cdbspectrum.hpp"
+
+
 namespace compositron::core {
 
+
 namespace measurement {
+
 
 class Shape {
 private:
@@ -26,7 +29,9 @@ public:
 
 std::ostream& operator<<(std::ostream& os, Shape const& shape);
 
-}
+
+} // namespace measurement
+
 
 class Measurement {
 public:
@@ -42,5 +47,6 @@ public:
 
     measurement::Shape shape() const;
 };
+
 
 } // namespace compositron::core

@@ -1,44 +1,68 @@
 #pragma once
 
-#include "compositron/core/utils.hpp"
-#include <cmath>
 #include <cstdint>
-#include <tuple>
 #include <vector>
-#include <string>
+#include <array>
+#include <map>
+
+#include "compositron/core/utils.hpp"
+#include "compositron/core/fitting.hpp"
+
 
 namespace compositron::dbs {
 
-typedef std::tuple<double, double> ecal_t;
+
+struct PeakArea {
+    core::utils::Unit width;
+};
+
+struct PeakAreaWithOffset {
+    core::utils::Unit width;
+    core::utils::Unit offset;
+};
+
+struct SpectrumArea {
+    double left_bnd;
+    double right_bnd;
+};
+
+struct LineshapeParam {
+    double val;
+    double err;
+    std::vector<SpectrumArea> num;
+    std::vector<SpectrumArea> denom;
+};
+
 
 class DBSpectrum {
 public:
-    core::utils::SpectrumPtr spectrum;
-    std::string detname;
-    ecal_t ecal;
-    double s = NAN;
-    double ds = NAN;
-    double w = NAN;
-    double dw = NAN;
-    double v2p = NAN;
-    double dv2p = NAN;
-    uint64_t counts = 0;
-    double dcounts = NAN;
-    double peak_counts = NAN;
-    double dpeak_counts = NAN;
+    core::utils::Spectrum spectrum;
+    core::utils::EnergyDetector detector;
+    uint64_t counts;
+    double dcounts;
+    std::optional<Eigen::VectorXd> peak;
+    std::optional<std::array<size_t, 2>> peak_bnds;
+    double peak_counts;
+    double dpeak_counts;
+    std::map<std::string, core::fitting::SimpleFitParam> peak_params;
+    std::map<std::string, LineshapeParam> lineshape_params;
 
     DBSpectrum() = delete;
 
+    DBSpectrum(DBSpectrum& other) = delete;
+
+    DBSpectrum(DBSpectrum&& other) = default;
+
     DBSpectrum(
-        core::utils::SpectrumPtr spectrum,
-        std::string detname,
-        ecal_t ecal = {}
+        core::utils::Spectrum&& spectrum,
+        core::utils::EnergyDetector detector
     );
 
     template<typename T>
     DBSpectrum(
-        std::vector<T>&& spectrum, std::string detname, ecal_t ecal = {}
-    );
+        const std::vector<T>& spectrum, core::utils::EnergyDetector detector
+    ) : DBSpectrum(core::utils::Spectrum(spectrum), detector) {}
 };
+
 
 } // namespace compositron::dbs

@@ -1,5 +1,17 @@
 #include "compositron/importers/SLOPE_n42_importer.hpp"
 
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <limits>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <format>
+#include <stdexcept>
+#include <iostream>
+#include <utility>
+
 #include "compositron/core/measurement.hpp"
 #include "compositron/core/utils.hpp"
 #include "compositron/dbs/dbspectrum.hpp"
@@ -8,17 +20,9 @@
 #include "compositron/importers/vendored/rapidxml.hpp"
 #include "compositron/importers/vendored/rapidxml_utils.hpp"
 
-#include <algorithm>
-#include <cstdint>
-#include <filesystem>
-#include <sstream>
-#include <string>
-#include <unordered_map>
-#include <format>
-#include <stdexcept>
-#include <iostream>
 
 namespace {
+
 
 namespace xml = rapidxml;
 namespace fs = std::filesystem;
@@ -257,10 +261,10 @@ string get_or_parse_detname(
     return detname;
 }
 
-dbs::ecal_t get_or_parse_ecal(
+core::utils::LinearCalibration get_or_parse_ecal(
     string ecal_id,
     unordered_map<string, xml::xml_node<>*>& ecals,
-    unordered_map<string, dbs::ecal_t> parsed_ecals
+    unordered_map<string, core::utils::LinearCalibration> parsed_ecals
 ) {
     if (parsed_ecals.find(ecal_id) != parsed_ecals.end()) {
         return parsed_ecals.at(ecal_id);
@@ -296,14 +300,14 @@ dbs::ecal_t get_or_parse_ecal(
         throw std::runtime_error("Invalid energy calibration format");
     }
 
-    dbs::ecal_t ecal = {a, b};
+    core::utils::LinearCalibration ecal = {a, b};
 
     parsed_ecals[ecal_id] = ecal;
 
     return ecal;
 }
 
-core::utils::SpectrumPtr parse_dbspectrum(xml::xml_node<>* spectrum_node) {
+core::utils::Spectrum parse_dbspectrum(xml::xml_node<>* spectrum_node) {
     auto channel_data_node = spectrum_node->first_node("ChannelData");
 
     string channel_data(channel_data_node->value());
@@ -323,7 +327,7 @@ core::utils::SpectrumPtr parse_dbspectrum(xml::xml_node<>* spectrum_node) {
         spectrum.push_back(bin);
     }
 
-    return core::utils::toMinTypeSpectrum(spectrum);
+    return core::utils::Spectrum(spectrum);
 }
 
 void import_dbspectrum(
@@ -331,7 +335,7 @@ void import_dbspectrum(
     unordered_map<string, xml::xml_node<>*>& detectors,
     unordered_map<string, xml::xml_node<>*>& ecals,
     unordered_map<string, string> parsed_detnames,
-    unordered_map<string, dbs::ecal_t> parsed_ecals,
+    unordered_map<string, core::utils::LinearCalibration> parsed_ecals,
     Measurement& m
 ) {
     auto det_id = spectrum_node->first_attribute(
@@ -364,13 +368,17 @@ void import_dbspectrum(
         );
     }
 
-    dbs::ecal_t ecal = get_or_parse_ecal(ecal_id->value(), ecals, parsed_ecals);
+    core::utils::LinearCalibration ecal = get_or_parse_ecal(
+        ecal_id->value(), ecals, parsed_ecals
+    );
 
-    core::utils::SpectrumPtr spectrum = parse_dbspectrum(spectrum_node);
+    core::utils::Spectrum spectrum = parse_dbspectrum(spectrum_node);
 
-    m.dbs.emplace(detname, dbs::DBSpectrum(
-        std::move(spectrum), detname, ecal
-    ));
+    core::utils::EnergyDetector detector = {
+        detname, ecal, std::nullopt, std::numeric_limits<double>::quiet_NaN()
+    };
+
+    m.dbs.emplace(detname, dbs::DBSpectrum(std::move(spectrum), detector));
 }
 
 string parse_detpair(xml::xml_node<>* detpair_node) {
@@ -385,7 +393,7 @@ string parse_detpair(xml::xml_node<>* detpair_node) {
     return name_node->value();
 }
 
-dbs::ecal_t get_ecal(
+core::utils::EnergyDetector get_detector(
     xml::xml_node<>* detpair_node,
     unordered_map<string, xml::xml_node<>*>& detectors,
     unordered_map<string, string> parsed_detnames,
@@ -422,26 +430,26 @@ dbs::ecal_t get_ecal(
         ));
     }
 
-    return m.dbs.at(detname).ecal;
+    return m.dbs.at(detname).detector;
 }
 
-cdbs::ecal_t get_or_parse_c_ecal(
+std::array<core::utils::EnergyDetector, 2> get_or_parse_c_dets(
     xml::xml_node<>* detpair_node,
     unordered_map<string, xml::xml_node<>*>& detectors,
     unordered_map<string, string> parsed_detnames,
     Measurement& m
 ) {
     return {
-        get_ecal(
+        get_detector(
             detpair_node, detectors, parsed_detnames, m, "RadDetector1Name"
         ),
-        get_ecal(
+        get_detector(
             detpair_node, detectors, parsed_detnames, m, "RadDetector2Name"
         )
     };
 }
 
-core::utils::Spectrum2DPtr parse_cdbspectrum(
+core::utils::Spectrum2D parse_cdbspectrum(
     xml::xml_node<>* spectrum_node,
     fs::path& path
 ) {
@@ -459,8 +467,11 @@ core::utils::Spectrum2DPtr parse_cdbspectrum(
         (directory / png_filename).string()
     );
 
-    return core::utils::toMinTypeSpectrum2D(
-        spectrum.data, {spectrum.height, spectrum.width}
+    return core::utils::Spectrum2D(
+        spectrum.data,
+        spectrum.height,
+        spectrum.width,
+        core::utils::StorageOrder::ROWMAJ
     );
 }
 
@@ -489,25 +500,30 @@ void import_cdbspectrum(
 
     auto detpair_node = detpairs.at(detpair_id->value());
 
-    string detpair = parse_detpair(detpair_node);
+    string detpair_name = parse_detpair(detpair_node);
 
-    if (m.cdbs.contains(detpair)) {
+    if (m.cdbs.contains(detpair_name)) {
         throw std::runtime_error(std::format(
-            "Detectors of multiple spectra have the same name {}", detpair
+            "Detectors of multiple spectra have the same name {}", detpair_name
         ));
     }
 
-    cdbs::ecal_t ecal = get_or_parse_c_ecal(
+    std::array<core::utils::EnergyDetector, 2> dets = get_or_parse_c_dets(
         detpair_node, detectors, parsed_detnames, m
     );
 
-    core::utils::Spectrum2DPtr spectrum = parse_cdbspectrum(
+    core::utils::Spectrum2D spectrum = parse_cdbspectrum(
         spectrum_node, path
     );
 
-    m.cdbs.emplace(detpair, cdbs::CDBSpectrum(
-        std::move(spectrum), detpair, ecal
-    ));
+    core::utils::EnergyDetectorPair detpair = {
+        detpair_name,
+        dets[0],
+        dets[1],
+        std::numeric_limits<double>::quiet_NaN()
+    };
+
+    m.cdbs.emplace(detpair_name, cdbs::CDBSpectrum(std::move(spectrum), detpair));
 }
 
 void sort_meas_children(
@@ -519,7 +535,7 @@ void sort_meas_children(
     unordered_map<string, xml::xml_node<>*>& hardware,
     fs::path& path
 ) {
-    unordered_map<string, dbs::ecal_t> parsed_ecals;
+    unordered_map<string, core::utils::LinearCalibration> parsed_ecals;
     unordered_map<string, string> parsed_detnames;
     vector<xml::xml_node<>*> cdbs_nodes;
 
@@ -592,9 +608,12 @@ Measurement import_m(xml::xml_node<>* root, fs::path& path) {
     return m;
 }
 
+
 } // anonymous namespace
 
+
 namespace compositron::importers {
+
 
 Measurement import_SLOPE_n42(const std::string& filepath) {
     fs::path path = fs::path(filepath);
@@ -609,5 +628,6 @@ Measurement import_SLOPE_n42(const std::string& filepath) {
 
     return import_m(root, path);
 }
+
 
 } // namespace compositron::importers
