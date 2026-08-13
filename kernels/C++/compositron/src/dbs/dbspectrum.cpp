@@ -8,8 +8,6 @@
 #include <stdexcept>
 #include <variant>
 #include <ranges>
-#include <fstream>
-#include <iomanip>
 
 #include <eigen3/Eigen/Core>
 
@@ -23,23 +21,6 @@ namespace compositron::dbs {
 
 
 namespace {
-
-
-template <typename T>
-void write_vector(const Eigen::VectorX<T>& v, const std::string& filename)
-{
-    std::ofstream file(filename);
-
-    if (!file) {
-        throw std::runtime_error("Could not open file: " + filename);
-    }
-
-    file << std::setprecision(17);
-
-    for (Eigen::Index i = 0; i < v.size(); ++i) {
-        file << v(i) << '\n';
-    }
-}
 
 
 template <typename T>
@@ -397,13 +378,6 @@ void DBSpectrum::subtract_bg(PeakModel peak_model) {
     for (size_t i = 0; i < y.size(); ++i) {
         y[i] -= corr[i];
     }
-
-    std::visit(
-        [this](const auto& spectrum) {
-            write_vector(spectrum, "spectrum.csv");
-        },
-        spectrum.data
-    );
 }
 
 
