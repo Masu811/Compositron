@@ -234,6 +234,10 @@ impl DBSpectrum {
     fn subtract_bg(
         &mut self, peak_model: PeakModel
     ) -> Result<(), AnalysisError> {
+        if peak_model == PeakModel::Gauss {
+            return Ok(());
+        }
+
         self.fit_peak(peak_model)?;
 
         let x = self.get_peak_energies();
@@ -261,8 +265,11 @@ impl DBSpectrum {
         let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
 
         let left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2.);
-
         let right_peak_idx = ecal.to_index_rounded(M_E_KEV + peak_width / 2.);
+
+        if right_peak_idx >= self.spectrum.len() {
+            return Err(AnalysisError::OutOfBounds);
+        }
 
         self.peak_bnds = Some((left_peak_idx, right_peak_idx));
 
@@ -313,6 +320,84 @@ impl DBSpectrum {
         Ok(ecal)
     }
 
+    fn integrate_const<T: LossyIntoF64>(
+        spectrum: &[T],
+        lower_ch_bnd: f64,
+        upper_ch_bnd: f64,
+    ) -> f64 {
+        let mut counts = 0.;
+
+        // index of lowest channel still inside ROI
+        let lowest_ch = lower_ch_bnd.round() as usize;
+        // index of highest channel still inside ROI
+        let highest_ch = upper_ch_bnd.round() as usize;
+
+        counts += spectrum[lowest_ch..=highest_ch]
+            .iter()
+            .map(|&x| T::lossy_into_f64(x))
+            .sum::<f64>();
+
+        // Left edge counts
+
+        let lowest_ch_counts = T::lossy_into_f64(spectrum[lowest_ch]);
+        let x1 = lowest_ch as f64 - 0.5;
+        counts -= lowest_ch_counts * (lower_ch_bnd - x1);
+
+        // Right edge counts
+
+        let highest_ch_counts = T::lossy_into_f64(spectrum[highest_ch]);
+        let x2 = highest_ch as f64 + 0.5;
+        counts -= highest_ch_counts * (x2 - upper_ch_bnd);
+
+        counts
+    }
+
+    fn integrate_linear<T: LossyIntoF64>(
+        spectrum: &[T],
+        lower_ch_bnd: f64,
+        upper_ch_bnd: f64,
+    ) -> f64 {
+        let mut counts = 0.;
+
+        // index of lowest channel still inside ROI
+        let lowest_ch = lower_ch_bnd.floor() as usize;
+        // index of highest channel still inside ROI
+        let highest_ch = upper_ch_bnd.ceil() as usize;
+
+        counts += spectrum[lowest_ch+1..highest_ch]
+            .iter()
+            .map(|&x| T::lossy_into_f64(x))
+            .sum::<f64>();
+
+        counts += 0.5 * T::lossy_into_f64(spectrum[lowest_ch]);
+        counts += 0.5 * T::lossy_into_f64(spectrum[highest_ch]);
+
+        // Left edge counts
+
+        let x1 = lowest_ch as f64;
+
+        let y1 = T::lossy_into_f64(spectrum[lowest_ch]);
+        let y2 = T::lossy_into_f64(spectrum[lowest_ch + 1]);
+
+        let y_l = (y2 - y1) * (lower_ch_bnd - x1) + y1;
+
+        counts -= 0.5 * (y1 + y_l) * (lower_ch_bnd - x1);
+
+        // Right edge counts
+
+        let x1 = (highest_ch - 1) as f64;
+        let x2 = highest_ch as f64;
+
+        let y1 = T::lossy_into_f64(spectrum[highest_ch - 1]);
+        let y2 = T::lossy_into_f64(spectrum[highest_ch]);
+
+        let y_u = (y2 - y1) * (upper_ch_bnd - x1) + y1;
+
+        counts -= 0.5 * (y_u + y2) * (x2 - upper_ch_bnd);
+
+        counts
+    }
+
     fn integrate_generic<T: LossyIntoF64>(
         spectrum: &[T],
         mut lower_ch_bnd: f64,
@@ -335,72 +420,18 @@ impl DBSpectrum {
             return Err(AnalysisError::OutOfBounds);
         }
 
-        let mut counts: f64 = 0.;
-
         match bin_integration_scheme {
-            BinIntegrationScheme::Const => {
-                // index of lowest channel still inside ROI
-                let lowest_ch = lower_ch_bnd.round() as usize;
-                // index of highest channel still inside ROI
-                let highest_ch = upper_ch_bnd.round() as usize;
-
-                counts += spectrum[lowest_ch..=highest_ch]
-                    .iter()
-                    .map(|&x| T::lossy_into_f64(x))
-                    .sum::<f64>();
-
-                // Left edge counts
-
-                let lowest_ch_counts = T::lossy_into_f64(spectrum[lowest_ch]);
-                let x1 = lowest_ch as f64 - 0.5;
-                counts -= lowest_ch_counts * (lower_ch_bnd - x1);
-
-                // Right edge counts
-
-                let highest_ch_counts = T::lossy_into_f64(spectrum[highest_ch]);
-                let x2 = highest_ch as f64 + 0.5;
-                counts -= highest_ch_counts * (x2 - upper_ch_bnd);
-            },
-            BinIntegrationScheme::Linear => {
-                // index of lowest channel still inside ROI
-                let lowest_ch = lower_ch_bnd.floor() as usize;
-                // index of highest channel still inside ROI
-                let highest_ch = upper_ch_bnd.ceil() as usize;
-
-                counts += spectrum[lowest_ch+1..highest_ch]
-                    .iter()
-                    .map(|&x| T::lossy_into_f64(x))
-                    .sum::<f64>();
-
-                counts += 0.5 * T::lossy_into_f64(spectrum[lowest_ch]);
-                counts += 0.5 * T::lossy_into_f64(spectrum[highest_ch]);
-
-                // Left edge counts
-
-                let x1 = lowest_ch as f64;
-
-                let y1 = T::lossy_into_f64(spectrum[lowest_ch]);
-                let y2 = T::lossy_into_f64(spectrum[lowest_ch + 1]);
-
-                let y_l = (y2 - y1) * (lower_ch_bnd - x1) + y1;
-
-                counts -= 0.5 * (y1 + y_l) * (lower_ch_bnd - x1);
-
-                // Right edge counts
-
-                let x1 = (highest_ch - 1) as f64;
-                let x2 = highest_ch as f64;
-
-                let y1 = T::lossy_into_f64(spectrum[highest_ch - 1]);
-                let y2 = T::lossy_into_f64(spectrum[highest_ch]);
-
-                let y_u = (y2 - y1) * (upper_ch_bnd - x1) + y1;
-
-                counts -= 0.5 * (y_u + y2) * (x2 - upper_ch_bnd);
-            },
+            BinIntegrationScheme::Const => Ok(
+                DBSpectrum::integrate_const(
+                    spectrum, lower_ch_bnd, upper_ch_bnd
+                )
+            ),
+            BinIntegrationScheme::Linear => Ok(
+                DBSpectrum::integrate_linear(
+                    spectrum, lower_ch_bnd, upper_ch_bnd
+                )
+            ),
         }
-
-        Ok(counts)
     }
 
     pub fn integrate(
@@ -429,9 +460,9 @@ impl DBSpectrum {
         let mut upper_ch_bnd = ecal.to_index_f64(upper_bnd);
 
         if in_corrected_peak {
-            let peak_bnds = self.peak_bnds.unwrap();
-            lower_ch_bnd -= peak_bnds.0 as f64;
-            upper_ch_bnd -= peak_bnds.0 as f64;
+            let (lower_peak_bnd, _) = self.peak_bnds.unwrap();
+            lower_ch_bnd -= lower_peak_bnd as f64;
+            upper_ch_bnd -= lower_peak_bnd as f64;
             let peak = self.peak.as_ref().unwrap();
             DBSpectrum::integrate_generic(
                 peak, lower_ch_bnd, upper_ch_bnd, bin_integration_scheme,
