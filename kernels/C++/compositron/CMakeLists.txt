@@ -8,7 +8,13 @@ set(CMAKE_CXX_EXTENSIONS        OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Eigen3 REQUIRED)
+find_package(Ceres REQUIRED)
+
 add_library(${PROJECT_NAME} SHARED
+    src/core/utils.cpp
+    src/core/fitting.cpp
+    src/dbs/fitting.cpp
     src/dbs/dbspectrum.cpp
     src/cdbs/cdbspectrum.cpp
     src/core/measurement.cpp
@@ -18,6 +24,11 @@ add_library(${PROJECT_NAME} SHARED
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(${PROJECT_NAME} PUBLIC
+    Eigen3::Eigen
+    Ceres::ceres
 )
 
 add_executable(exampleMeasurement examples/measurement.cpp)

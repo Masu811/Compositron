@@ -7,8 +7,8 @@
 #include <vector>
 #include <cassert>
 
-#include <eigen3/Eigen/Core>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Core>
+#include <Eigen/Dense>
 
 
 namespace compositron::core::utils {
@@ -23,7 +23,7 @@ public:
     double from_index(double index);
     size_t to_index(double value);
     size_t to_index_rounded(double value);
-    double to_float_index(double value);
+    double to_index_double(double value);
 };
 
 
@@ -66,9 +66,11 @@ public:
     UnitType type;
     double value;
 
+    Unit() = default;
+
     Unit(double value, UnitType type) : type(type), value(value) {}
 
-    std::optional<double> to_kev(std::optional<double> eres);
+    double to_kev(double eres);
 };
 
 

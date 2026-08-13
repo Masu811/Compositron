@@ -1,6 +1,8 @@
 #include "compositron/core/utils.hpp"
 
 #include "compositron/constants.hpp"
+#include <limits>
+#include <stdexcept>
 
 
 namespace compositron::core::utils {
@@ -22,35 +24,35 @@ double LinearCalibration::from_index(double index) {
 }
 
 size_t LinearCalibration::to_index(double value) {
-    return (value - offset) / scale;
+    return std::max((value - offset) / scale, 0.);
 }
 
 size_t LinearCalibration::to_index_rounded(double value) {
-    return std::round((value - offset) / scale);
+    return std::max(std::round((value - offset) / scale), 0.);
 }
 
-double LinearCalibration::to_float_index(double value) {
-    return (value - offset) / scale;
+double LinearCalibration::to_index_double(double value) {
+    return std::max((value - offset) / scale, 0.);
 }
 
 
 // class Unit
 
-std::optional<double> Unit::to_kev(std::optional<double> eres) {
+double Unit::to_kev(double eres) {
     switch (type) {
         case UnitType::KEV:
             return value;
-            break;
         case UnitType::M0C:
             return value * KEV_PER_M0C;
-            break;
         case UnitType::ERES:
-            if (eres.has_value()) {
-                return value * eres.value();
-            } else {
-                return std::nullopt;
+            if (std::isnan(eres)) {
+                throw std::runtime_error(
+                    "Could not convert units of eres to keV due to missing eres"
+                );
             }
-            break;
+            return value * eres;
+        default:
+            return std::numeric_limits<double>::quiet_NaN();
     }
 }
 
@@ -66,14 +68,7 @@ std::size_t Spectrum::size() const {
     );
 }
 
-
-using Spectrum2DData = std::variant<
-    Eigen::MatrixX<std::uint8_t>,
-    Eigen::MatrixX<std::uint16_t>,
-    Eigen::MatrixX<std::uint32_t>,
-    Eigen::MatrixX<std::uint64_t>
->;
-
+// class Spectrum 2D
 
 std::size_t Spectrum2D::size() const {
     return std::visit(
