@@ -9,15 +9,28 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 
 ## Roadmap
 
+**Short Term**
+
 | Feature              | Rust  | C++   | Julia | Python | C     |
 | :---                 | :---: | :---: | :---: | :---:  | :---: |
 | SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
-| DBS analysis         | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| MePS importer        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| PALS analysis        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| CDBS analysis        | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| DBS analysis         | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
+| MePS importer        | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
+| PALS analysis        | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
+| CDBS analysis        | [x]   | [ ]   | [ ]   | [ ]    | [ ]   |
 | Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
-| Profile analysis     | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+
+**Long Term (in only one of the above languages)**
+
+- Measurement bulk handling
+- Profile analysis (VEPFIT, LIMPID)
+- Advanced PALS analysis (MELT, CONTIN)
+- Advanced CDBS analysis (In-Flight)
+- GPU acceleration
+- Listmode processing tools
+- Waveform processing tools
+- AMOC analysis
+- ACAR analysis
 
 ## Architectures
 
