@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <vector>
 #include <array>
 #include <map>
@@ -110,8 +109,8 @@ public:
     double dcounts;
     std::optional<Eigen::VectorXd> peak;
     std::optional<std::array<size_t, 2>> peak_bnds;
-    double peak_counts;
-    double dpeak_counts;
+    std::optional<double> peak_counts;
+    std::optional<double> dpeak_counts;
     std::map<std::string, core::fitting::SimpleFitParam> peak_params;
     std::map<std::string, LineshapeParam> lineshape_params;
 

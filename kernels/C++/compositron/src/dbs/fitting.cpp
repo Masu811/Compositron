@@ -18,20 +18,7 @@ core::fitting::FitResult fit_gaussian(
     const Eigen::VectorXd& y,
     const std::array<double, 3>& init
 ) {
-    ceres::Problem problem;
-
-    std::vector<double> opt(init.begin(), init.end());
-
-    for (size_t i = 0; i < x.size(); ++i) {
-        auto* cost_function =
-            new ceres::AutoDiffCostFunction<GaussResidual, 1, 1, 1, 1>(
-                x[i], y[i], 1 / std::sqrt(std::max(y[i], 1.))
-            );
-
-        problem.AddResidualBlock(cost_function, nullptr, &opt[0], &opt[1], &opt[2]);
-    }
-
-    return core::fitting::fit(problem, opt);
+    return core::fitting::fit_generic<GaussResidual, 3>(x, y, init);
 }
 
 
@@ -47,22 +34,7 @@ core::fitting::FitResult fit_erf_linear_1_gauss(
     const Eigen::VectorXd& y,
     const std::array<double, 6>& init
 ) {
-    ceres::Problem problem;
-
-    std::vector<double> opt(init.begin(), init.end());
-
-    for (size_t i = 0; i < x.size(); ++i) {
-        auto* cost_function =
-            new ceres::AutoDiffCostFunction<ErfLinear1GaussResidual, 1, 1, 1, 1, 1, 1, 1>(
-                x[i], y[i], 1 / std::sqrt(std::max(y[i], 1.))
-            );
-
-        problem.AddResidualBlock(
-            cost_function, nullptr, &opt[0], &opt[1], &opt[2], &opt[3], &opt[4], &opt[5]
-        );
-    }
-
-    return core::fitting::fit(problem, opt);
+    return core::fitting::fit_generic<ErfLinear1GaussResidual, 6>(x, y, init);
 }
 
 
@@ -71,22 +43,7 @@ core::fitting::FitResult fit_erf_linear_2_gauss(
     const Eigen::VectorXd& y,
     const std::array<double, 9>& init
 ) {
-    ceres::Problem problem;
-
-    std::vector<double> opt(init.begin(), init.end());
-
-    for (size_t i = 0; i < x.size(); ++i) {
-        auto* cost_function =
-            new ceres::AutoDiffCostFunction<ErfLinear2GaussResidual, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>(
-                x[i], y[i], 1 / std::sqrt(std::max(y[i], 1.))
-            );
-
-        problem.AddResidualBlock(
-            cost_function, nullptr, &opt[0], &opt[1], &opt[2], &opt[3], &opt[4], &opt[5], &opt[6], &opt[7], &opt[8]
-        );
-    }
-
-    return core::fitting::fit(problem, opt);
+    return core::fitting::fit_generic<ErfLinear2GaussResidual, 9>(x, y, init);
 }
 
 
@@ -95,22 +52,7 @@ core::fitting::FitResult fit_erf_linear_3_gauss(
     const Eigen::VectorXd& y,
     const std::array<double, 12>& init
 ) {
-    ceres::Problem problem;
-
-    std::vector<double> opt(init.begin(), init.end());
-
-    for (size_t i = 0; i < x.size(); ++i) {
-        auto* cost_function =
-            new ceres::AutoDiffCostFunction<ErfLinear3GaussResidual, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1>(
-                x[i], y[i], 1 / std::sqrt(std::max(y[i], 1.))
-            );
-
-        problem.AddResidualBlock(
-            cost_function, nullptr, &opt[0], &opt[1], &opt[2], &opt[3], &opt[4], &opt[5], &opt[6], &opt[7], &opt[8], &opt[9], &opt[10], &opt[11]
-        );
-    }
-
-    return core::fitting::fit(problem, opt);
+    return core::fitting::fit_generic<ErfLinear3GaussResidual, 12>(x, y, init);
 }
 
 

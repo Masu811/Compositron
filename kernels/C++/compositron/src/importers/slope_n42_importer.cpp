@@ -1,4 +1,4 @@
-#include "compositron/importers/SLOPE_n42_importer.hpp"
+#include "compositron/importers/slope_n42_importer.hpp"
 
 #include <algorithm>
 #include <cstdint>

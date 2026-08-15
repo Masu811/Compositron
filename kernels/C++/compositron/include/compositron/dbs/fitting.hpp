@@ -22,19 +22,14 @@ struct GaussResidual {
     GaussResidual(double x, double y, double w) : x(x), y(y), w(w) {}
 
     template <typename T>
-    bool operator()(
-        const T* const amp,
-        const T* const x0,
-        const T* const sig,
-        T* residual
-    ) const {
-        if (sig[0] == 0) {
-            return false;
-        }
+    bool operator()(const T* const params, T* residual) const {
+        T amp = params[0];
+        T x0 = params[1];
+        T sig = params[2];
 
-        T u = (x - x0[0]) / sig[0];
+        T u = (x - x0) / sig;
 
-        residual[0] = w * (y - amp[0] * ceres::exp(-0.5 * u * u));
+        residual[0] = w * (y - amp * ceres::exp(-0.5 * u * u));
 
         return true;
     }
@@ -60,22 +55,21 @@ struct ErfLinear1GaussResidual {
     ErfLinear1GaussResidual(double x, double y, double w) : x(x), y(y), w(w) {}
 
     template <typename T>
-    bool operator()(
-        const T* const amp_gauss_1,
-        const T* const x0_1,
-        const T* const sig_1,
-        const T* const amp_erf,
-        const T* const lin,
-        const T* const off,
-        T* residual
-    ) const {
-        T u_1 = (x - x0_1[0]) / sig_1[0];
+    bool operator()(const T* const params, T* residual) const {
+        T amp_gauss_1 = params[0];
+        T x0_1 = params[1];
+        T sig_1 = params[2];
+        T amp_erf = params[3];
+        T lin = params[4];
+        T off = params[5];
 
-        T gauss_1 = amp_gauss_1[0] * ceres::exp(-0.5 * u_1 * u_1);
+        T u_1 = (x - x0_1) / sig_1;
 
-        T erf = amp_erf[0] * ceres::erf(u_1);
+        T gauss_1 = amp_gauss_1 * ceres::exp(-0.5 * u_1 * u_1);
 
-        residual[0] = w * (y - (gauss_1 + erf + lin[0] * x + off[0]));
+        T erf = amp_erf * ceres::erf(u_1);
+
+        residual[0] = w * (y - (gauss_1 + erf + lin * x + off));
 
         return true;
     }
@@ -97,29 +91,26 @@ struct ErfLinear2GaussResidual {
     ErfLinear2GaussResidual(double x, double y, double w) : x(x), y(y), w(w) {}
 
     template <typename T>
-    bool operator()(
-        const T* const amp_gauss_1,
-        const T* const x0_1,
-        const T* const sig_1,
-        const T* const amp_gauss_2,
-        const T* const x0_2,
-        const T* const sig_2,
-        const T* const amp_erf,
-        const T* const lin,
-        const T* const off,
-        T* residual
-    ) const {
-        T u_1 = (x - x0_1[0]) / sig_1[0];
-        T u_2 = (x - x0_2[0]) / sig_2[0];
+    bool operator()(const T* const params, T* residual) const {
+        T amp_gauss_1 = params[0];
+        T x0_1 = params[1];
+        T sig_1 = params[2];
+        T amp_gauss_2 = params[3];
+        T x0_2 = params[4];
+        T sig_2 = params[5];
+        T amp_erf = params[6];
+        T lin = params[7];
+        T off = params[8];
 
-        T gauss_1 = amp_gauss_1[0] * ceres::exp(-0.5 * u_1 * u_1);
-        T gauss_2 = amp_gauss_2[0] * ceres::exp(-0.5 * u_2 * u_2);
+        T u_1 = (x - x0_1) / sig_1;
+        T u_2 = (x - x0_2) / sig_2;
 
-        T erf = amp_erf[0] * ceres::erf(u_1);
+        T gauss_1 = amp_gauss_1 * ceres::exp(-0.5 * u_1 * u_1);
+        T gauss_2 = amp_gauss_2 * ceres::exp(-0.5 * u_2 * u_2);
 
-        residual[0] = w * (y - (
-            gauss_1 + gauss_2 + erf + lin[0] * x + off[0]
-        ));
+        T erf = amp_erf * ceres::erf(u_1);
+
+        residual[0] = w * (y - (gauss_1 + gauss_2 + erf + lin * x + off));
 
         return true;
     }
@@ -141,33 +132,32 @@ struct ErfLinear3GaussResidual {
     ErfLinear3GaussResidual(double x, double y, double w) : x(x), y(y), w(w) {}
 
     template <typename T>
-    bool operator()(
-        const T* const amp_gauss_1,
-        const T* const x0_1,
-        const T* const sig_1,
-        const T* const amp_gauss_2,
-        const T* const x0_2,
-        const T* const sig_2,
-        const T* const amp_gauss_3,
-        const T* const x0_3,
-        const T* const sig_3,
-        const T* const amp_erf,
-        const T* const lin,
-        const T* const off,
-        T* residual
-    ) const {
-        T u_1 = (x - x0_1[0]) / sig_1[0];
-        T u_2 = (x - x0_2[0]) / sig_2[0];
-        T u_3 = (x - x0_3[0]) / sig_3[0];
+    bool operator()(const T* const params, T* residual) const {
+        T amp_gauss_1 = params[0];
+        T x0_1 = params[1];
+        T sig_1 = params[2];
+        T amp_gauss_2 = params[3];
+        T x0_2 = params[4];
+        T sig_2 = params[5];
+        T amp_gauss_3 = params[6];
+        T x0_3 = params[7];
+        T sig_3 = params[8];
+        T amp_erf = params[9];
+        T lin = params[10];
+        T off = params[11];
 
-        T gauss_1 = amp_gauss_1[0] * ceres::exp(-0.5 * u_1 * u_1);
-        T gauss_2 = amp_gauss_2[0] * ceres::exp(-0.5 * u_2 * u_2);
-        T gauss_3 = amp_gauss_3[0] * ceres::exp(-0.5 * u_3 * u_3);
+        T u_1 = (x - x0_1) / sig_1;
+        T u_2 = (x - x0_2) / sig_2;
+        T u_3 = (x - x0_3) / sig_3;
 
-        T erf = amp_erf[0] * ceres::erf(u_1);
+        T gauss_1 = amp_gauss_1 * ceres::exp(-0.5 * u_1 * u_1);
+        T gauss_2 = amp_gauss_2 * ceres::exp(-0.5 * u_2 * u_2);
+        T gauss_3 = amp_gauss_3 * ceres::exp(-0.5 * u_3 * u_3);
+
+        T erf = amp_erf * ceres::erf(u_1);
 
         residual[0] = w * (y - (
-            gauss_1 + gauss_2 + gauss_3 + erf + lin[0] * x + off[0]
+            gauss_1 + gauss_2 + gauss_3 + erf + lin * x + off
         ));
 
         return true;

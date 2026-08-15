@@ -1,4 +1,5 @@
 #include "compositron/core/fitting.hpp"
+
 #include <cmath>
 
 
@@ -13,34 +14,61 @@ double compute_red_chi2(const ceres::Solver::Summary& summary) {
 }
 
 
-std::optional<Eigen::MatrixXd> compute_covariance(
+std::optional<Eigen::MatrixXd> compute_covariance_single_block(
     ceres::Problem& problem, const std::vector<double>& params
 ) {
     ceres::Covariance::Options cov_options;
     ceres::Covariance covariance(cov_options);
 
-    std::vector<std::pair<const double*, const double*>> covariance_blocks;
-
+    const double* data = params.data();
     size_t n = params.size();
 
-    for (size_t i = 0; i < n; ++i) {
-        for (size_t j = i; j < n; ++j) {
-            covariance_blocks.push_back(std::make_pair(&params[i], &params[j]));
-        }
-    }
+    std::vector<std::pair<const double*, const double*>> covariance_blocks;
+    covariance_blocks.push_back(std::make_pair(data, data));
 
-    bool success = covariance.Compute(covariance_blocks, &problem);
-
-    if (!success) {
+    if (!covariance.Compute(covariance_blocks, &problem)) {
         return std::nullopt;
     }
 
     Eigen::MatrixXd cov(n, n);
+    cov.setZero();
+
+    covariance.GetCovarianceBlock(data, data, cov.data());
+
+    return cov;
+}
+
+
+std::optional<Eigen::MatrixXd> compute_covariance_multi_blocks(
+    ceres::Problem& problem, const std::vector<double>& params
+) {
+    ceres::Covariance::Options cov_options;
+    ceres::Covariance covariance(cov_options);
+
+    size_t n = params.size();
+
+    std::vector<std::pair<const double*, const double*>> covariance_blocks;
 
     for (size_t i = 0; i < n; ++i) {
-        for (size_t j = i; j < n; ++j) {
-            covariance.GetCovarianceBlock(&params[i], &params[j], &cov(i, j));
-            covariance.GetCovarianceBlock(&params[i], &params[j], &cov(j, i));
+        for (size_t j = 0; j < n; ++j) {
+            covariance_blocks.emplace_back(&params[i], &params[j]);
+        }
+    }
+
+    if (!covariance.Compute(covariance_blocks, &problem)) {
+        return std::nullopt;
+    }
+
+    Eigen::MatrixXd cov(n, n);
+    cov.setZero();
+
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            covariance.GetCovarianceBlock(
+                &params[i],
+                &params[j],
+                &cov(i, j)
+            );
         }
     }
 
@@ -64,7 +92,7 @@ FitResult fit(ceres::Problem& problem, std::vector<double>& opt) {
 
     fit_result.red_chi_2 = core::fitting::compute_red_chi2(summary);
 
-    auto cov = core::fitting::compute_covariance(problem, opt);
+    auto cov = core::fitting::compute_covariance_single_block(problem, opt);
 
     if (cov.has_value()) {
         auto c = cov.value();

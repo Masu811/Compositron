@@ -17,9 +17,13 @@ add_library(${PROJECT_NAME} SHARED
     src/dbs/fitting.cpp
     src/dbs/dbspectrum.cpp
     src/cdbs/cdbspectrum.cpp
+    src/pals/fitting.cpp
+    src/pals/model.cpp
+    src/pals/palspectrum.cpp
     src/core/measurement.cpp
     src/importers/png_importer.cpp
-    src/importers/SLOPE_n42_importer.cpp
+    src/importers/slope_n42_importer.cpp
+    src/importers/meps_dat_importer.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -31,6 +35,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     Ceres::ceres
 )
 
-add_executable(exampleMeasurement examples/measurement.cpp)
+add_executable(exampleDBSfit examples/dbs_fit.cpp)
+add_executable(examplePALSfit examples/pals_fit.cpp)
 
-target_link_libraries(exampleMeasurement PRIVATE ${PROJECT_NAME})
+target_link_libraries(exampleDBSfit PRIVATE ${PROJECT_NAME})
+target_link_libraries(examplePALSfit PRIVATE ${PROJECT_NAME})
