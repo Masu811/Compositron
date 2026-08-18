@@ -41,10 +41,11 @@ fn main() -> anyhow::Result<()> {
                 offset_cml: Unit::KeV(0.),
             },
         ],
+        in_corrected_peak: false,
     };
 
     let start = Instant::now();
-    let s = c.calc_lineshape_param(&ls_param, false)?;
+    let s = c.calc_lineshape_param(&ls_param)?;
     let duration = start.elapsed();
 
     println!("Calculated S parameter: {} +/- {}", s.val, s.err);
@@ -68,9 +69,8 @@ fn main() -> anyhow::Result<()> {
     let mut f = std::fs::File::create("projection.csv").unwrap();
 
     for elem in p.spectrum.iter() {
-        write!(f, "{elem} ").unwrap();
+        write!(f, "{elem}\n").unwrap();
     }
-    write!(f, "\n").unwrap();
 
     println!("{:?}", p.ecal);
 

@@ -493,10 +493,6 @@ fn prepare_fit(
         model.shift_component.val = peak_center;
     }
 
-    if model.background_component.default_initialized {
-        model.background_component.vary = false;
-    }
-
     let n_l = model.lifetime_components.len();
     let n_r = model.resolution_components.len();
 

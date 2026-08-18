@@ -88,7 +88,7 @@ pub fn parse_model(
         background_component: model.remove("background")
             .unwrap_or(FitParam::default(0.).fixed()),
         scale_component: model.remove("N")
-            .unwrap_or(FitParam::default(1.).min(0.)),
+            .unwrap_or(FitParam::default(1e7).min(0.)),
         shift_component: model.remove("t0")
             .unwrap_or(FitParam::default(0.)),
     })

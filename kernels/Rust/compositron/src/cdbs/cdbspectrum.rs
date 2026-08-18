@@ -27,8 +27,8 @@ use crate::cdbs::fitting::fit_gauss2d;
 use crate::constants::M_E_KEV;
 use crate::core::fitting::{self, LMFitError};
 use crate::core::utils::{
-    spectrum2d_match, EnergyDetectorPair, LinearCalibration, Spectrum2D,
-    EcalCorrectionOrder, Unit
+    spectrum2d_match, EcalCorrectionOrder, EnergyDetector, EnergyDetectorPair,
+    LinearCalibration, Spectrum2D, Spectrum, Unit
 };
 use crate::dbs::DBSpectrum;
 
@@ -82,6 +82,14 @@ pub enum AnalysisError {
 
     #[error("Invalid bins for projection")]
     InvalidBins,
+
+    #[error("Could not fold projection as bins are not symmetric around 0")]
+    FoldError,
+
+    #[error(
+        "Could not convert projection to DBSpectrum due to missing energy calibration"
+    )]
+    ProjectionConversionError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,6 +133,7 @@ pub struct LineshapeParam {
     pub err: f64,
     pub num: Vec<Area>,
     pub denom: Vec<Area>,
+    pub in_corrected_peak: bool,
 }
 
 #[derive(Debug)]
@@ -132,13 +141,14 @@ pub struct LineshapeParamDefinition<'a> {
     pub name: &'a str,
     pub num: &'a [Area],
     pub denom: &'a [Area],
+    pub in_corrected_peak: bool,
 }
 
 pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "S",
         num: &[
-                Area::Diagonal {
+            Area::Diagonal {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(0.),
@@ -153,6 +163,7 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
                 offset_cml: Unit::KeV(0.),
             },
         ],
+        in_corrected_peak: true,
     },
     LineshapeParamDefinition {
         name: "W",
@@ -178,6 +189,7 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
                 offset_cml: Unit::KeV(0.),
             },
         ],
+        in_corrected_peak: true,
     },
     LineshapeParamDefinition {
         name: "P/T",
@@ -195,17 +207,18 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
                 second_det_bnds: (f64::NEG_INFINITY, f64::INFINITY),
             },
         ],
+        in_corrected_peak: false,
     },
 ];
 
 #[inline]
 fn ij_to_xy(i: f64, ecal: LinearCalibration) -> f64 {
-    i * ecal.scale + ecal.offset
+    ecal.from_index_f64(i)
 }
 
 #[inline]
 fn xy_to_ij(x: f64, ecal: LinearCalibration) -> f64 {
-    (x - ecal.offset) / ecal.scale
+    ecal.to_index_f64(x)
 }
 
 #[inline]
@@ -294,6 +307,11 @@ fn convert_ellipse(
     }
 }
 
+pub struct FoldedProjection {
+    pub energies: DVector<f64>,
+    pub spectrum: DVector<f64>,
+}
+
 pub struct Projection {
     pub spectrum: DVector<f64>,
     pub parent_detector_name: String,
@@ -323,18 +341,117 @@ impl Projection {
         }
     }
 
-    pub fn fold() -> Result<(DVector<f64>, DVector<f64>), AnalysisError> {
-        // Check: are the bins symmetric around 0
-        //     yes => fold it and ship it
-        //     no => return Err
-        todo!()
+    pub fn get_energies(&self) -> Result<DVector<f64>, AnalysisError> {
+        if let Some(ecal) = self.ecal {
+            let len = self.spectrum.len();
+            Ok(DVector::from_iterator(len, (0..len)
+                .map(|i| ecal.from_index(i))
+            ))
+        } else if let Some(bins) = &self.bins {
+            let len = bins.len() - 1;
+            Ok(DVector::from_iterator(len, (0..len)
+                .map(|i| 0.5 * (bins[i] + bins[i + 1]))
+            ))
+        } else {
+            Err(AnalysisError::FoldError)
+        }
     }
 
-    pub fn to_dbspectrum() -> Result<DBSpectrum, AnalysisError> {
-        // Check: are the bins linear
-        //     yes => return DBSpectrum
-        //     no => return Err
-        todo!()
+    pub fn fold(&self) -> Result<FoldedProjection, AnalysisError> {
+        if let Some(ecal) = self.ecal
+            && (ecal.to_index_f64(0.) % 1. - 0.5).abs() < 1e-2
+        {
+            let last_left_idx = ecal.to_index_rounded(0.);
+            let first_right_idx = last_left_idx + 1;
+
+            let len_left = last_left_idx + 1;
+            let len_right = self.spectrum.len() - len_left;
+
+            let len_new = len_left.min(len_right);
+
+            let spectrum = DVector::from_iterator(
+                len_new,
+                (0..len_new)
+                    .map(|i| {
+                        self.spectrum[last_left_idx - i]
+                        + self.spectrum[first_right_idx + i]
+                    })
+            );
+
+            let energies = DVector::from_iterator(
+                len_new,
+                (first_right_idx..self.spectrum.len())
+                    .map(|i| ecal.from_index(i))
+            );
+
+            return Ok(FoldedProjection { energies, spectrum });
+        } else if let Some(bins) = &self.bins
+            && bins.iter().map(|x| x).any(|x| x.abs() < 1e-2)
+        {
+            let Some(center_idx) = bins
+                .iter()
+                .enumerate()
+                .min_by(|(_, x), (_, y)| x.abs().total_cmp(&y.abs()))
+                .map(|(i, _)| i)
+            else {
+                return Err(AnalysisError::FoldError);
+            };
+
+            let len_left = center_idx;
+            let len_right = bins.len() - len_left - 1;
+
+            let len_new = len_left.min(len_right);
+
+            let mut spectrum = Vec::new();
+            let mut energies = Vec::new();
+
+            for i in 0..len_new - 1 {
+                let left_bin_left_edge = bins[center_idx - i - 1];
+                let left_bin_right_edge = bins[center_idx - i];
+
+                let right_bin_left_edge = bins[center_idx + i];
+                let right_bin_right_edge = bins[center_idx + i + 1];
+
+                if left_bin_left_edge + right_bin_right_edge > 1e-2
+                    || left_bin_right_edge + right_bin_left_edge > 1e-2
+                {
+                    return Err(AnalysisError::FoldError);
+                }
+
+                spectrum.push(
+                    self.spectrum[center_idx - i - 1]
+                    + self.spectrum[center_idx + i]
+                );
+                energies.push(
+                    0.5 * (right_bin_left_edge + right_bin_right_edge) as f64
+                );
+            }
+
+            return Ok(FoldedProjection {
+                energies: DVector::from_vec(energies),
+                spectrum: DVector::from_vec(spectrum),
+            })
+        }
+
+        return Err(AnalysisError::FoldError);
+    }
+
+    pub fn to_dbspectrum(&self) -> Result<DBSpectrum, AnalysisError> {
+        let Some(ecal) = self.ecal else {
+            return Err(AnalysisError::ProjectionConversionError);
+        };
+
+        Ok(DBSpectrum::new(
+            Spectrum::from(
+                self.spectrum.iter().map(|&x| x as u64).collect::<Vec<u64>>()
+            ),
+            EnergyDetector {
+                name: self.parent_detector_name.clone(),
+                ecal,
+                corrected_ecal: None,
+                eres: None,
+            }
+        ))
     }
 }
 
@@ -372,20 +489,16 @@ impl CDBSpectrum {
         }
     }
 
-    pub fn new_default_analyzed(
-        spectrum: Spectrum2D, detector: EnergyDetectorPair,
-    ) -> Result<Self, AnalysisError> {
-        let mut s = CDBSpectrum::new(spectrum, detector);
+    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
+        self.correct_ecal(EcalCorrectionOrder::First)?;
 
-        s.correct_ecal(EcalCorrectionOrder::First)?;
-
-        s.extract_peak((10., 10.), BackgroundModel::None);
+        self.extract_peak((10., 10.), BackgroundModel::None);
 
         for param in STD_LINESHAPE_PARAMS {
-            s.calc_lineshape_param(param, true)?;
+            self.calc_lineshape_param(param)?;
         }
 
-        Ok(s)
+        Ok(())
     }
 
     pub fn project_axes(&self, onto_axis: Axis) -> Projection {
@@ -703,8 +816,8 @@ impl CDBSpectrum {
             view
                 .iter()
                 .zip(weights.iter())
-                .map(|(x, w)| *x as u64 * *w as u64)
-                .sum::<u64>()
+                .map(|(x, w)| *x * *w as f64)
+                .sum::<f64>()
         } else {
             spectrum2d_match!(
                 &self.spectrum,
@@ -715,10 +828,10 @@ impl CDBSpectrum {
                         .iter()
                         .zip(weights.iter())
                         .map(|(x, w)| *x as u64 * *w as u64)
-                        .sum()
+                        .sum::<u64>() as f64
                 }
             )
-        } as f64 / 255.;
+        } / 255.;
 
         Ok(integral)
     }
@@ -786,7 +899,6 @@ impl CDBSpectrum {
     pub fn calc_lineshape_param(
         &mut self,
         definition: &LineshapeParamDefinition,
-        in_corrected_peak: bool,
     ) -> Result<&LineshapeParam, AnalysisError> {
         let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
             self.detpair.first_det.ecal
@@ -796,7 +908,7 @@ impl CDBSpectrum {
         );
         let ecal = (ecal_1, ecal_2);
 
-        let integral_bnds = if in_corrected_peak {
+        let integral_bnds = if definition.in_corrected_peak {
             let Some(bnds) = self.peak_bnds else {
                 return Err(AnalysisError::NoPeakExtracted);
             };
@@ -838,12 +950,12 @@ impl CDBSpectrum {
 
         let num_areas = definition.num
             .iter()
-            .map(|&area| self.integrate(area, in_corrected_peak))
+            .map(|&area| self.integrate(area, definition.in_corrected_peak))
             .collect::<Result<Vec<f64>, AnalysisError>>()?;
 
         let denom_areas = definition.denom
             .iter()
-            .map(|&area| self.integrate(area, in_corrected_peak))
+            .map(|&area| self.integrate(area, definition.in_corrected_peak))
             .collect::<Result<Vec<f64>, AnalysisError>>()?;
 
         let mut common_areas = Vec::new();
@@ -854,39 +966,39 @@ impl CDBSpectrum {
                     num_area, denom_area
                 )?;
 
-                if intersection.vertices.len() > 0 {
-                    let (
-                        left_col, right_col, lower_row, upper_row
-                    ) = get_bounding_box(&intersection.to_vertices())?;
+                if intersection.vertices.len() == 0 { continue; }
 
-                    if right_col > ncols - 1 || lower_row > nrows - 1 {
-                        return Err(AnalysisError::AntiAliasingError {
-                            source: AntiAliasingError::OutOfBounds
-                        });
-                    }
+                let (
+                    left_col, right_col, lower_row, upper_row
+                ) = get_bounding_box(&intersection.to_vertices())?;
 
-                    intersection.vertices
-                        .iter_mut()
-                        .for_each(|v| *v = Vertex(
-                            v.0 - left_col as f64, v.1 - upper_row as f64
-                        ));
-
-                    let nrows_view = lower_row - upper_row + 1;
-                    let ncols_view = right_col - left_col + 1;
-
-                    let weights = agg_aa(nrows_view, ncols_view, &intersection)?;
-
-                    let integral = self.blend_and_sum(
-                        weights,
-                        upper_row,
-                        left_col,
-                        nrows_view,
-                        ncols_view,
-                        in_corrected_peak,
-                    )?;
-
-                    common_areas.push(integral);
+                if right_col > ncols - 1 || lower_row > nrows - 1 {
+                    return Err(AnalysisError::AntiAliasingError {
+                        source: AntiAliasingError::OutOfBounds
+                    });
                 }
+
+                intersection.vertices
+                    .iter_mut()
+                    .for_each(|v| *v = Vertex(
+                        v.0 - left_col as f64, v.1 - upper_row as f64
+                    ));
+
+                let nrows_view = lower_row - upper_row + 1;
+                let ncols_view = right_col - left_col + 1;
+
+                let weights = agg_aa(nrows_view, ncols_view, &intersection)?;
+
+                let integral = self.blend_and_sum(
+                    weights,
+                    upper_row,
+                    left_col,
+                    nrows_view,
+                    ncols_view,
+                    definition.in_corrected_peak,
+                )?;
+
+                common_areas.push(integral);
             }
         }
 
@@ -906,6 +1018,7 @@ impl CDBSpectrum {
             err,
             num: definition.num.to_owned(),
             denom: definition.denom.to_owned(),
+            in_corrected_peak: definition.in_corrected_peak,
         };
 
         self.lineshape_params.insert(definition.name.into(), param);

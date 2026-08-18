@@ -207,7 +207,7 @@ fn compare_filename_and_header(filepath: &PathBuf, header: &HeaderInfo) {
     if let Ok(energy) = parse_header_field(filename_components[l-6], "keV")
         && energy != header.energy
     {
-
+        // log::warn
     }
 
     if let Ok(temperature) = parse_header_field(filename_components[l-5], "K")
@@ -288,16 +288,11 @@ fn import_params(filepath: &PathBuf, m: &mut Measurement) {
         return;
     };
 
-    let mut reader = std::io::BufReader::new(param_file);
+    let reader = std::io::BufReader::new(param_file);
 
-    let mut content = String::new();
-    let Ok(_) = reader.read_to_string(&mut content) else {
-        return;
-    };
+    for line in reader.lines() {
+        let Ok(line) = line else { break; };
 
-    let lines = content.split("\n").map(|line| line.trim());
-
-    for line in lines {
         if line.len() < 30 {
             continue;
         }
