@@ -15,30 +15,30 @@ using Eigen::ColMajor;
 
 // class LinearCalibration
 
-double LinearCalibration::from_index(size_t index) {
+double LinearCalibration::from_index(size_t index) const {
     return scale * index + offset;
 }
 
-double LinearCalibration::from_index(double index) {
+double LinearCalibration::from_index(double index) const {
     return scale * index + offset;
 }
 
-size_t LinearCalibration::to_index(double value) {
+size_t LinearCalibration::to_index(double value) const {
     return std::max((value - offset) / scale, 0.);
 }
 
-size_t LinearCalibration::to_index_rounded(double value) {
+size_t LinearCalibration::to_index_rounded(double value) const {
     return std::max(std::round((value - offset) / scale), 0.);
 }
 
-double LinearCalibration::to_index_double(double value) {
+double LinearCalibration::to_index_double(double value) const {
     return std::max((value - offset) / scale, 0.);
 }
 
 
 // class Unit
 
-double Unit::to_kev(double eres) {
+double Unit::to_kev(double eres) const {
     switch (type) {
         case UnitType::KEV:
             return value;
@@ -74,6 +74,24 @@ std::size_t Spectrum2D::size() const {
     return std::visit(
         [](const auto& data) {
             return data.size();
+        },
+        data
+    );
+}
+
+std::size_t Spectrum2D::rows() const {
+    return std::visit(
+        [](const auto& data) {
+            return data.rows();
+        },
+        data
+    );
+}
+
+std::size_t Spectrum2D::cols() const {
+    return std::visit(
+        [](const auto& data) {
+            return data.cols();
         },
         data
     );

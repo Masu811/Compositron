@@ -84,6 +84,7 @@ FitResult fit(ceres::Problem& problem, std::vector<double>& opt) {
 
     core::fitting::FitResult fit_result;
 
+    fit_result.summary = summary;
     fit_result.fit_status = summary.termination_type;
 
     if (fit_result.fit_status != ceres::CONVERGENCE) {

@@ -393,6 +393,35 @@ string parse_detpair(xml::xml_node<>* detpair_node) {
     return name_node->value();
 }
 
+size_t parse_window(xml::xml_node<>* params, string param) {
+    auto param_node = params->first_node(param.data());
+
+    if (param_node == nullptr) {
+        throw std::runtime_error(std::format(
+            "Could not find node '{}' in the expected place", param
+        ));
+    }
+
+    return static_cast<size_t>(std::stol(param_node->value()));
+}
+
+std::array<std::array<size_t, 2>, 2> get_window(xml::xml_node<>* detpair_node) {
+    auto params = detpair_node->first_node("CoincidenceParameters");
+
+    if (params == nullptr) {
+        throw std::runtime_error(
+            "Could not find node 'CoincidenceParameters' in the expected place"
+        );
+    }
+
+    size_t offset_x = parse_window(params, "OffsetX");
+    size_t offset_y = parse_window(params, "OffsetY");
+    size_t dim_x = parse_window(params, "DimensionX");
+    size_t dim_y = parse_window(params, "DimensionY");
+
+    return {{{offset_x, offset_x + dim_x}, {offset_y, offset_y + dim_y}}};
+}
+
 core::utils::EnergyDetector get_detector(
     xml::xml_node<>* detpair_node,
     unordered_map<string, xml::xml_node<>*>& detectors,
@@ -439,14 +468,19 @@ std::array<core::utils::EnergyDetector, 2> get_or_parse_c_dets(
     unordered_map<string, string> parsed_detnames,
     Measurement& m
 ) {
-    return {
-        get_detector(
-            detpair_node, detectors, parsed_detnames, m, "RadDetector1Name"
-        ),
-        get_detector(
-            detpair_node, detectors, parsed_detnames, m, "RadDetector2Name"
-        )
-    };
+    auto det1 = get_detector(
+        detpair_node, detectors, parsed_detnames, m, "RadDetector1Name"
+    );
+    auto det2 = get_detector(
+        detpair_node, detectors, parsed_detnames, m, "RadDetector2Name"
+    );
+
+    auto window = get_window(detpair_node);
+
+    det1.ecal.offset += window[0][0] * det1.ecal.scale;
+    det2.ecal.offset += window[1][0] * det2.ecal.scale;
+
+    return {det1, det2};
 }
 
 core::utils::Spectrum2D parse_cdbspectrum(

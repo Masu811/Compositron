@@ -89,4 +89,30 @@ core::fitting::FitResult fit_generic(
 }
 
 
+template <typename CostFunctor, size_t N>
+core::fitting::FitResult fit_generic_2d(
+    const Eigen::VectorXd& x,
+    const Eigen::VectorXd& y,
+    const Eigen::MatrixXd& z,
+    const std::array<double, N>& init
+) {
+    ceres::Problem problem;
+
+    std::vector<double> opt(init.begin(), init.end());
+
+    for (size_t i = 0; i < y.size(); ++i) {
+        for (size_t j = 0; j < x.size(); ++j) {
+            auto* cost_function =
+                new ceres::AutoDiffCostFunction<CostFunctor, 1, N>(
+                    x[j], y[i], z(i, j), 1 / std::sqrt(std::max(z(i, j), 1.))
+                );
+
+            problem.AddResidualBlock(cost_function, nullptr, opt.data());
+        }
+    }
+
+    return core::fitting::fit(problem, opt);
+}
+
+
 } // namespace compositron::core::fitting

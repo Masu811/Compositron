@@ -42,11 +42,11 @@ public:
     double offset;
     double scale;
 
-    double from_index(size_t index);
-    double from_index(double index);
-    size_t to_index(double value);
-    size_t to_index_rounded(double value);
-    double to_index_double(double value);
+    double from_index(size_t index) const;
+    double from_index(double index) const;
+    size_t to_index(double value) const;
+    size_t to_index_rounded(double value) const;
+    double to_index_double(double value) const;
 };
 
 
@@ -93,7 +93,7 @@ public:
 
     Unit(double value, UnitType type) : type(type), value(value) {}
 
-    double to_kev(double eres);
+    double to_kev(double eres) const;
 };
 
 
@@ -119,7 +119,7 @@ public:
     Spectrum() = delete;
 
     template <typename T>
-    Spectrum(std::vector<T>& vec_data) {
+    Spectrum(const std::vector<T>& vec_data) {
         auto max = std::max_element(vec_data.begin(), vec_data.end());
 
         if (*max <= UINT8_MAX) {
@@ -176,7 +176,7 @@ using Spectrum2DData = std::variant<
 
 
 class Spectrum2D {
-private:
+public:
     Spectrum2DData data;
 
 private:
@@ -211,7 +211,7 @@ public:
 
     template <typename T>
     Spectrum2D(
-        std::vector<T>& vec_data,
+        const std::vector<T>& vec_data,
         size_t nrows,
         size_t ncols,
         StorageOrder order
@@ -246,6 +246,10 @@ public:
     }
 
     std::size_t size() const;
+
+    std::size_t rows() const;
+
+    std::size_t cols() const;
 };
 
 
