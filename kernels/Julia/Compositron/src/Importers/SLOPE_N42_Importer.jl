@@ -1,11 +1,11 @@
-import DataStructures: OrderedDict
+using DataStructures: OrderedDict
 
 import LightXML as xml
 
-import ..DBS: DBSpectrum
-import ..CDBS: CDBSpectrum
-import ..Core: Measurement
-import ..Utils: min_spectrum, min_spectrum2d
+using ...DBS: DBSpectrum
+using ...CDBS: CDBSpectrum
+using ...Utils: min_spectrum, min_spectrum2d, LinearCalibration, EnergyDetector, EnergyDetectorPair
+using ..Core: Measurement
 
 function add_version!(
     node::xml.XMLElement,
@@ -204,8 +204,8 @@ end
 function get_or_parse_ecal!(
     ecal_id::String,
     ecals::Dict{String, xml.XMLElement},
-    parsed_ecals::Dict{String, Tuple{Float64, Float64}},
-)::Tuple{Float64, Float64}
+    parsed_ecals::Dict{String, LinearCalibration},
+)::LinearCalibration
     ecal_id in keys(parsed_ecals) && return parsed_ecals[ecal_id]
 
     ecal_node = nothing
@@ -238,7 +238,7 @@ function get_or_parse_ecal!(
         ))
     end
 
-    ecal = (values[1], values[2])
+    ecal = LinearCalibration(values[1], values[2])
 
     parsed_ecals[ecal_id] = ecal
 
@@ -267,7 +267,7 @@ function import_dbspectrum!(
     detectors::Dict{String, xml.XMLElement},
     ecals::Dict{String, xml.XMLElement},
     parsed_detnames::Dict{String, String},
-    parsed_ecals::Dict{String, Tuple{Float64, Float64}},
+    parsed_ecals::Dict{String, LinearCalibration},
     m::Measurement
 )
     det_id = xml.attribute(spectrum_node, "radDetectorInformationReference")
@@ -294,7 +294,9 @@ function import_dbspectrum!(
 
     spectrum = parse_spectrum(spectrum_node)
 
-    m.dbs[detname] = DBSpectrum(spectrum, detname, ecal)
+    detector = EnergyDetector(detname, ecal, nothing, nothing)
+
+    m.dbs[detname] = DBSpectrum(spectrum, detector)
 end
 
 function parse_detpair(detpair_node::xml.XMLElement)::String
@@ -307,7 +309,7 @@ function parse_detpair(detpair_node::xml.XMLElement)::String
     xml.content(name_node)
 end
 
-function get_ecal(
+function get_detector!(
     det_element_name::String,
     detpair_node::xml.XMLElement,
     detectors::Dict{String, xml.XMLElement},
@@ -330,7 +332,7 @@ function get_ecal(
     detname = get_or_parse_detname!(det_id, detectors, parsed_detnames)
     try
         s = m.dbs[detname]
-        return s.ecal
+        return s.detector
     catch
         throw(ErrorException(
             "Coincidence detector pair is referencing detector $(detname), "*
@@ -339,16 +341,16 @@ function get_ecal(
     end
 end
 
-function get_or_parse_c_ecal!(
+function get_or_parse_c_dets!(
     detpair_node::xml.XMLElement,
     detectors::Dict{String, xml.XMLElement},
     parsed_detnames::Dict{String, String},
     m::Measurement
-)::Tuple{Tuple{Float64, Float64}, Tuple{Float64, Float64}}
+)::Tuple{EnergyDetector, EnergyDetector}
     (
-        get_ecal(
+        get_detector!(
             "RadDetector1Name", detpair_node, detectors, parsed_detnames, m,
-        ), get_ecal(
+        ), get_detector!(
             "RadDetector2Name", detpair_node, detectors, parsed_detnames, m,
         ),
     )
@@ -393,21 +395,21 @@ function import_cdbspectrum!(
     end
 
     detpair_node = detpairs[detpair_id]
-    detpair = parse_detpair(detpair_node)
+    detpair_name = parse_detpair(detpair_node)
 
-    if detpair in keys(m.cdbs)
+    if detpair_name in keys(m.cdbs)
         throw(ErrorException(
-            "Detectors of multiple spectra have the same name $detpair"
+            "Detectors of multiple spectra have the same name $detpair_name"
         ))
     end
 
-    ecal = get_or_parse_c_ecal!(
-        detpair_node, detectors, parsed_detnames, m,
-    )
+    dets = get_or_parse_c_dets!(detpair_node, detectors, parsed_detnames, m)
 
     spectrum = parse_cdbspectrum(spectrum_node, path)
 
-    m.cdbs[detpair] = CDBSpectrum(spectrum, detpair, ecal)
+    detpair = EnergyDetectorPair(detpair_name, dets[1], dets[2], nothing)
+
+    m.cdbs[detpair_name] = CDBSpectrum(spectrum, detpair)
 end
 
 function sort_meas_children!(
@@ -419,7 +421,7 @@ function sort_meas_children!(
     hardware::Dict{String, xml.XMLElement},
     filename::String,
 )
-    parsed_ecals = Dict{String, Tuple{Float64, Float64}}()
+    parsed_ecals = Dict{String, LinearCalibration}()
     parsed_detnames = Dict{String, String}()
 
     cdbs_nodes = Vector{xml.XMLElement}()

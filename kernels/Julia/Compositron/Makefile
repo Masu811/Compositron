@@ -5,6 +5,6 @@ default:
 	mkdir -p build
 	juliac \
 	  --output-lib build/libcompositron \
-	  --trim=safe \
+	  --trim=no \
 	  --experimental \
 	  .

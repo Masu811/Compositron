@@ -1,11 +1,13 @@
-import DataStructures: OrderedDict
+using DataStructures: OrderedDict
 
-import ..DBS: DBSpectrum
-import ..CDBS: CDBSpectrum
+using ..DBS: DBSpectrum
+using ..CDBS: CDBSpectrum
+using ..PALS: PALSpectrum
 
 struct MeasurementShape
     dbs::Int
     cdbs::Int
+    pals::Int
 end
 
 mutable struct Measurement
@@ -13,6 +15,7 @@ mutable struct Measurement
     name::Union{String, Nothing}
     dbs::OrderedDict{String, DBSpectrum}
     cdbs::OrderedDict{String, CDBSpectrum}
+    pals::OrderedDict{String, PALSpectrum}
     metadata::Dict{String, String}
 
     function Measurement()
@@ -21,11 +24,12 @@ mutable struct Measurement
             nothing,
             OrderedDict(),
             OrderedDict(),
+            OrderedDict(),
             Dict(),
         )
     end
 end
 
 function shape(m::Measurement)
-    MeasurementShape(length(m.dbs), length(m.cdbs))
+    MeasurementShape(length(m.dbs), length(m.cdbs), length(m.pals))
 end

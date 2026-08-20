@@ -1,0 +1,2 @@
+struct FitResult
+end

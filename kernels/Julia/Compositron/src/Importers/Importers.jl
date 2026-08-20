@@ -1,6 +1,5 @@
-module Importers
+using .Importers: import_SLOPE_n42
 
-include("PNG_Importer.jl")
-include("SLOPE_N42_Importer.jl")
-
-end # module Importers
+function Measurement(filename::String)
+    import_SLOPE_n42(filename)
+end
