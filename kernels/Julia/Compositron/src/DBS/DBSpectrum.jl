@@ -158,9 +158,19 @@ function _fit_peak!(d::DBSpectrum, peak_model::PeakModel)
     if peak_model == gauss_peak
         d.peak_params = fit_gaussian(x, y, [maximum(y), 511, 1])
     elseif peak_model == erf_linear_1_gauss_peak
-        d.peak_params = fit_erf_linear_1_gauss(x, y, [maximum(y), 511, 1, -10, 0, 0])
+        d.peak_params = fit_erf_linear_1_gauss(
+            x, y, [maximum(y), 511, 1, -10, 0, 0]
+        )
     elseif peak_model == erf_linear_2_gauss_peak
+        m = maximum(y)
+        d.peak_params = fit_erf_linear_2_gauss(
+            x, y, [m / 2, 511, 1, m / 2, 511, 1.5, -10, 0, 0]
+        )
     else
+        m = maximum(y)
+        d.peak_params = fit_erf_linear_3_gauss(
+            x, y, [m / 3, 511, 1, m / 3, 511, 1.5, m / 3, 511, 2.0, -10, 0, 0]
+        )
     end
 end
 
