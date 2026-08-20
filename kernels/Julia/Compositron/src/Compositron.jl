@@ -29,6 +29,7 @@ module Core
     module Importers
         include("Importers/PNG_Importer.jl")
         include("Importers/SLOPE_N42_Importer.jl")
+        include("Importers/MePS_DAT_Importer.jl")
     end
 
     include("Importers/Importers.jl")

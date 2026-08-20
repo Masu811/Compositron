@@ -1,8 +1,8 @@
-using ..Utils: EnergyDetectorPair, min_spectrum
+using ..Utils: TimingDetectorPair, min_spectrum
 
 mutable struct PALSpectrum
     spectrum::Vector{<:Unsigned}
-    detpair::EnergyDetectorPair
+    detpair::TimingDetectorPair
     counts::Int64
     dcounts::Float64
     peak_bnds::Union{Nothing, Tuple{Int, Int}}
@@ -13,7 +13,7 @@ mutable struct PALSpectrum
     fit_result::Union{Nothing, FitResult}
 
     function PALSpectrum(
-        spectrum::AbstractVector{<:Integer}, detpair::EnergyDetectorPair
+        spectrum::AbstractVector{<:Integer}, detpair::TimingDetectorPair
     )
         counts = sum(spectrum)
         dcounts = sqrt(counts)

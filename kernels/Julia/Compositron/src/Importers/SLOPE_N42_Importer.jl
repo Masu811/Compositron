@@ -462,7 +462,7 @@ function sort_meas_children!(
     end
 end
 
-function import_SLOPE_n42(filename::String)::Measurement
+function import_slope_n42(filename::String)::Measurement
     doc = xml.parse_file(filename)
 
     root = xml.root(doc)
