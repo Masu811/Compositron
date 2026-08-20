@@ -1,3 +1,5 @@
+using ..Constants: KEV_PER_M0C
+
 # LinearCalibration
 
 mutable struct LinearCalibration
@@ -21,6 +23,34 @@ function to_index_float(ecal::LinearCalibration, value)::Float64
     (value - ecal.offset) / ecal.scale
 end
 
+# EcalCorrectionOrder
+
+@enum EcalCorrectionOrder zeroth_order first_order no_corr
+
+# Unit
+
+abstract type Unit end
+
+struct KeV <: Unit
+    value::Float64
+end
+
+struct M0C <: Unit
+    value::Float64
+end
+
+struct Eres <: Unit
+    value::Float64
+end
+
+to_kev(value::KeV, eres::Union{Nothing, Float64})::Float64 = value.value
+
+to_kev(value::M0C, eres::Union{Nothing, Float64})::Float64 = value.value * KEV_PER_M0C
+
+to_kev(value::Eres, eres::Union{Nothing, Float64})::Union{Nothing, Float64} = (
+    isnothing(eres) ? nothing : value.value * eres
+)
+
 # Detectors
 
 # DBS
@@ -43,7 +73,7 @@ end
 mutable struct TimingDetectorPair
     name::String
     tcal::LinearCalibration
-    corrected_ecal::Union{Nothing, LinearCalibration}
+    corrected_tcal::Union{Nothing, LinearCalibration}
     tres::Union{Nothing, Float64}
 end
 

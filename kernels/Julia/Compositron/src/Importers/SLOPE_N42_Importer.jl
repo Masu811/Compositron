@@ -240,6 +240,9 @@ function get_or_parse_ecal!(
 
     ecal = LinearCalibration(values[1], values[2])
 
+    # Ecal is given for 0-based indices, Julia uses 1-based indices
+    ecal.offset -= ecal.scale
+
     parsed_ecals[ecal_id] = ecal
 
     ecal

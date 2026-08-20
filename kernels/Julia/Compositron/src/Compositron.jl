@@ -1,11 +1,16 @@
 module Compositron
 
+module Constants
+    include("Constants.jl")
+end
+
 module Utils
     include("Core/Utils.jl")
     include("Core/Fitting.jl")
 end
 
 module DBS
+    include("DBS/Fitting.jl")
     include("DBS/DBSpectrum.jl")
 end
 
