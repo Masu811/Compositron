@@ -257,12 +257,8 @@ function fit_report(p::PALSpectrum)
         text *= "Background Components: 0\n"
     end
     text *= "\n"
-    text *= "Fit Method: Levenberg-Marquardt\n"
-    if result.fit_status
-        text *= "Fit Status: Success\n"
-    else
-        text *= "Fit Status: Failure\n"
-    end
+    text *= "Fit Method: Trust-Region\n"
+    text *= format("Fit Status: {}\n", result.fit_status)
     text *= format("Number of Function Evaluations: {}\n", result.n_eval)
     if isnothing(result.red_chi_2)
         text *= "Reduced Chi squared: NaN\n"

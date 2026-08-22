@@ -1,20 +1,20 @@
-using LsqFit
-using LsqFit: LsqFitResult
 using SpecialFunctions: erfc
+using NonlinearSolve
+using LinearAlgebra
 
 using ..Constants: SQRT_2, SQRT_2PI
 using ..Utils: FitParam
 
 function lifetime_spectrum_component(
     t::Vector{Float64},
-    n::Float64,
-    t0::Float64,
-    tau::Float64,
-    l_int::Float64,
-    sig::Float64,
-    r_int::Float64,
-    r_t0::Float64,
-)::Vector{Float64}
+    n,
+    t0,
+    tau,
+    l_int,
+    sig,
+    r_int,
+    r_t0,
+)
     # TODO: rewrite with unicode symbols
 
     sig_over_tau_sqrt_2 = sig / (tau * SQRT_2)
@@ -36,20 +36,16 @@ mutable struct FitContext
     fixed_params::Vector{Float64}
     available_l_intensity::Float64
     available_r_intensity::Float64
-    absolute_l_intensities::Vector{Float64}
-    absolute_r_intensities::Vector{Float64}
     last_l_vary_idx::Int
     last_r_vary_idx::Int
-    p_buffer::Vector{Float64}
     lower_bounds::Vector{Float64}
     upper_bounds::Vector{Float64}
     init::Vector{Float64}
     varied_param_idx::Int
     fixed_param_idx::Int
-    n_eval::Int
 end
 
-function _get_param(idx::Int, p, ctx::FitContext)::Float64
+function _get_param(idx::Int, p, ctx::FitContext)
     signed_idx = ctx.signed_param_idcs[idx]
 
     if signed_idx > 0
@@ -61,57 +57,65 @@ end
 
 function _transform_intensities!(p, ctx::FitContext)
     leftover_intensity = ctx.available_l_intensity
+    abs_l_intensities = zeros(eltype(p), ctx.n_l)
 
     for i in 1:ctx.n_l
         signed_idx = ctx.signed_param_idcs[4 + 2 * (i - 1) + 1]
 
         if signed_idx > 0
             next_intensity = p[signed_idx] * leftover_intensity
-            ctx.absolute_l_intensities[i] = next_intensity
+            abs_l_intensities[i] = next_intensity
             leftover_intensity = max(leftover_intensity - next_intensity, 0)
         elseif i == ctx.last_l_vary_idx
-            ctx.absolute_l_intensities[i] = leftover_intensity
-            break
+            abs_l_intensities[i] = leftover_intensity
+        else
+            abs_l_intensities[i] = ctx.fixed_params[abs(signed_idx)]
         end
     end
 
     leftover_intensity = ctx.available_r_intensity
+    abs_r_intensities = zeros(eltype(p), ctx.n_r)
 
     for i in 1:ctx.n_r
         signed_idx = ctx.signed_param_idcs[4 + 2 * ctx.n_l + 3 * (i - 1) + 1]
 
         if signed_idx > 0
             next_intensity = p[signed_idx] * leftover_intensity
-            ctx.absolute_r_intensities[i] = next_intensity
+            abs_r_intensities[i] = next_intensity
             leftover_intensity = max(leftover_intensity - next_intensity, 0)
         elseif i == ctx.last_r_vary_idx
-            ctx.absolute_r_intensities[i] = leftover_intensity
-            break
+            abs_r_intensities[i] = leftover_intensity
+        else
+            abs_r_intensities[i] = ctx.fixed_params[abs(signed_idx)]
         end
     end
+
+    return abs_l_intensities, abs_r_intensities
 end
 
 function _get_all_params!(p, ctx::FitContext)
-    _transform_intensities!(p, ctx)
+    abs_l_intensities, abs_r_intensities = _transform_intensities!(p, ctx)
+
+    p_buffer = zeros(eltype(p), 3 + 2 * ctx.n_l, 3 * ctx.n_r)
 
     for i in 1:3
-        ctx.p_buffer[i] = _get_param(i, p, ctx)
+        p_buffer[i] = _get_param(i, p, ctx)
     end
 
     for i in 1:ctx.n_l
         base_idx = 4 + 2 * (i - 1)
-        ctx.p_buffer[base_idx] = _get_param(base_idx, p, ctx)
-        ctx.p_buffer[base_idx + 1] = ctx.absolute_l_intensities[i]
+        p_buffer[base_idx] = _get_param(base_idx, p, ctx)
+        p_buffer[base_idx + 1] = abs_l_intensities[i]
     end
 
     for i in 1:ctx.n_r
         base_idx = 4 + 2 * ctx.n_l + 3 * (i - 1)
-        ctx.p_buffer[base_idx] = _get_param(base_idx, p, ctx)
-        ctx.p_buffer[base_idx + 1] = ctx.absolute_r_intensities[i]
-        ctx.p_buffer[base_idx + 2] = _get_param(base_idx + 2, p, ctx)
+        p_buffer[base_idx] = _get_param(base_idx, p, ctx)
+        p_buffer[base_idx + 1] = abs_r_intensities[i]
+        p_buffer[base_idx + 2] = _get_param(base_idx + 2, p, ctx)
     end
 
-    ctx.p_buffer
+    p_buffer
 end
 
 function _m(t, p, ctx::FitContext)
@@ -141,8 +145,6 @@ function _m(t, p, ctx::FitContext)
             )
         end
     end
-
-    ctx.n_eval += 1
 
     y
 end
@@ -265,8 +267,6 @@ function _j_m(t, p, ctx::FitContext)
 
     j = Matrix{Float64}(undef, n_dpoints, length(p))
     j_idx = 1
-
-    column_names = Vector{String}()
 
     if ctx.signed_param_idcs[1] > 0
         @. j[:, j_idx] = y / n
@@ -428,7 +428,6 @@ function _gobble_model!(model::LifetimeModel, ctx::FitContext)
             remaining_l_int -= l_int.val
         else
             _gobble_component!(l_int.val, l_int.vary, l_int.min, l_int.max, ctx)
-            ctx.absolute_l_intensities[i] = l_int.val
         end
     end
 
@@ -451,7 +450,6 @@ function _gobble_model!(model::LifetimeModel, ctx::FitContext)
             remaining_r_int -= r_int.val
         else
             _gobble_component!(r_int.val, r_int.vary, r_int.min, r_int.max, ctx)
-            ctx.absolute_r_intensities[i] = r_int.val
         end
 
         t0 = comp.t0
@@ -486,17 +484,13 @@ function _prepare_fit!(
             for comp in model.resolution_components if !comp.intensity.vary;
             init=0.
         ),  # available_r_intensity
-        zeros(Float64, n_l),  # absolute_l_intensities
-        zeros(Float64, n_r),  # absolute_r_intensities
         -1,  # last_l_vary_idx
         -1,  # last_r_vary_idx
-        zeros(Float64, n_max),  # p_buffer
         Vector{Float64}(),  # lower_bounds
         Vector{Float64}(),  # upper_bounds
         Vector{Float64}(),  # init
         1,  # varied_param_idx
         -1,  # fixed_param_idx
-        0,  # n_eval
     )
 
     _normalize_and_fix_params!(model, ctx)
@@ -571,7 +565,6 @@ function _paste_fit_result_errors!(
             l_cumul_sq_err += (q_err / (1 - q + 1e-12)) ^ 2
         elseif i == ctx.last_l_vary_idx
             l_int.err = l_int.val * sqrt(l_cumul_sq_err)
-            l_int.vary = true
         else
             l_int.err = 0
         end
@@ -597,56 +590,68 @@ function _paste_fit_result_errors!(
             r_cumul_sq_err += (q_err / (1 - q + 1e-12)) ^ 2
         elseif i == ctx.last_r_vary_idx
             r_int.err = r_int.val * sqrt(r_cumul_sq_err)
-            r_int.vary = true
         else
             r_int.err = 0
         end
+
+        comp.t0.err = _get_error(base_idx + 2, err, ctx)
     end
 end
 
 mutable struct FitResult
     model::LifetimeModel
     n_dpoints::Int
-    fit_status::Bool
+    fit_status::ReturnCode.T
     n_eval::Int
-    red_chi_2::Union{Nothing, Float64}
+    red_chi_2::Float64
     cov::Union{Nothing, Matrix{Float64}}
 end
 
 function _post_fit!(
-    fit::LsqFitResult,
+    sol,
     model::LifetimeModel,
     ctx::FitContext,
+    x::Vector{Float64},
+    w::Vector{Float64},
 )::FitResult
-    fit_result = FitResult(
-        model,
-        length(fit.resid),
-        fit.converged,
-        ctx.n_eval,
-        rss(fit) / dof(fit),
-        nothing,
-    )
-
-    opt = coef(fit)
+    opt = sol.u
+    res = sol.resid
 
     _paste_fit_result_values!(opt, model, ctx)
 
-    if !fit.converged
-        return fit_result
+    J = _j_m(x, opt, ctx) .* w
+
+    dof = length(res) - length(opt)
+    red_chi_2 = sum(abs2, res) / dof
+
+    fit_result = FitResult(
+        model,
+        length(sol.resid),
+        sol.retcode,
+        sol.stats.nf,
+        red_chi_2,
+        nothing,
+    )
+
+    try
+        Q, R = qr(J)
+        Rinv = inv(R)
+
+        cov = red_chi_2 .* (Rinv * Rinv')
+
+        fit_result.cov = cov
+
+        err = sqrt.(diag(cov))
+
+        _paste_fit_result_errors!(err, opt, model, ctx)
+    catch
     end
 
-    err = try
-        stderror(fit)
-    catch
-        return fit_result
+    if ctx.last_l_vary_idx > 0
+        model.lifetime_components[ctx.last_l_vary_idx].intensity.vary = true
     end
-
-    _paste_fit_result_errors!(err, opt, model, ctx)
-
-    fit_result.cov = try
-        estimate_covar(fit)
-    catch
-        return fit_result
+    if ctx.last_r_vary_idx > 0
+        model.resolution_components[ctx.last_r_vary_idx].intensity.vary = true
     end
 
     fit_result
@@ -661,14 +666,16 @@ function fit_lifetime_spectrum(
 )::FitResult
     ctx = _prepare_fit!(model, x, counts, peak_center)
 
-    m(t, p) = _m(t, p, ctx)
-    j_m(t, p) = _j_m(t, p, ctx)
+    w = @. 1 / sqrt(max(y, 1))
 
-    w = @. 1 / max(y, 1)
+    m(u, p) = w .* (_m(p, u, ctx) .- y)
+    # j_m(u, p) = _j_m(p, u, ctx) .* w
 
-    fit = curve_fit(
-        m, j_m, x, y, w, ctx.init, lower=ctx.lower_bounds, upper=ctx.upper_bounds
+    prob = NonlinearLeastSquaresProblem(
+        m, ctx.init, x; lb=ctx.lower_bounds, ub=ctx.upper_bounds,
     )
 
-    _post_fit!(fit, model, ctx)
+    sol = solve(prob, TrustRegion(; autodiff = AutoForwardDiff()))
+
+    _post_fit!(sol, model, ctx, x, w)
 end

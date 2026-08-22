@@ -8,11 +8,11 @@ m = Measurement(
 println(shape(m))
 
 lt_model = LifetimeModel(
-    "lifetime_1" => (180, 50, 5000),
+    "lifetime_1" => (180, 100, 5000),
     "intensity_1" => (0.79, 0, 1),
-    "lifetime_2" => (350, 50, 5000),
+    "lifetime_2" => (350, 100, 5000),
     "intensity_2" => (0.2, 0, 1),
-    "lifetime_3" => (2700, 50, 5000),
+    "lifetime_3" => (2700, 100, 5000),
     "intensity_3" => (0.01, 0, 1),
     "res_fwhm_1" => (210, 50, 1000),
     "res_intensity_1" => (0.8, 0, 1),

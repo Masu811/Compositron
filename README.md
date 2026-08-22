@@ -16,13 +16,12 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 | SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
 | DBS analysis         | [x]   | [x]   | [x]   | [ ]    | [ ]   |
 | MePS importer        | [x]   | [x]   | [x]   | [ ]    | [ ]   |
-| PALS analysis        | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
+| PALS analysis        | [x]   | [x]   | [x]   | [ ]    | [ ]   |
 | CDBS analysis        | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
 | Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 
 **Long Term (in only one of the above languages)**
 
-- Measurement bulk handling
 - Profile analysis (VEPFIT, LIMPID)
 - Advanced PALS analysis (MELT, CONTIN)
 - Advanced CDBS analysis (In-Flight)
