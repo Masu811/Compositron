@@ -5,14 +5,18 @@ authors = ["Maximilian Suhr <ge96quf@mytum.de>"]
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Format = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
 LightXML = "9c8b4983-aa76-5018-a973-4c85ecc9e179"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
 PNGFiles = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
 DataStructures = "0.19.4"
+Format = "1.3.7"
 LightXML = "0.9.3"
+LinearAlgebra = "1.12.0"
 LsqFit = "0.16.1"
 PNGFiles = "0.4.5"
 SpecialFunctions = "2.9.0"

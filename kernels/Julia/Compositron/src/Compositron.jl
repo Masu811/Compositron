@@ -19,6 +19,7 @@ module CDBS
 end
 
 module PALS
+    include("PALS/Model.jl")
     include("PALS/Fitting.jl")
     include("PALS/PALSpectrum.jl")
 end
