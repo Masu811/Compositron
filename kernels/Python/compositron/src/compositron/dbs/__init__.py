@@ -1,1 +1,1 @@
-from .dbspectrum import DBSpectrum, Ecal
+from .dbspectrum import DBSpectrum

@@ -1,1 +1,1 @@
-from .cdbspectrum import CDBSpectrum, Ecal
+from .cdbspectrum import CDBSpectrum

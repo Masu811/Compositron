@@ -1,5 +1,3 @@
-import sys
-sys.path.append("../src")
 from compositron.core import Measurement
 
 m = Measurement(
@@ -7,3 +5,9 @@ m = Measurement(
 )
 
 print(m.shape)
+
+s = m.dbs["OAB"]
+
+s.default_analyze()
+
+print(s.lineshape_params)

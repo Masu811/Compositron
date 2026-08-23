@@ -23,8 +23,8 @@ class Measurement:
         self.metadata: dict[str, str] = {}
 
         if filename is not None:
-            from ..importers.SLOPE_n42_importer import import_SLOPE_n42
-            m = import_SLOPE_n42(filename)
+            from ..importers.slope_n42_importer import import_slope_n42
+            m = import_slope_n42(filename)
 
             self.dbs = m.dbs
             self.cdbs = m.cdbs

@@ -6,9 +6,12 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 
-from ..dbs import DBSpectrum, Ecal as D_Ecal
-from ..cdbs import CDBSpectrum, Ecal as C_Ecal
+from ..dbs import DBSpectrum
+from ..cdbs import CDBSpectrum
 from ..core import Measurement
+from ..core.utils import (
+    LinearCalibration, EnergyDetector, EnergyDetectorPair
+)
 from .png_importer import import_png
 
 
@@ -206,8 +209,8 @@ def get_or_parse_detname(
 def get_or_parse_ecal(
     ecal_id: str,
     ecals: dict[str, Element[str]],
-    parsed_ecals: dict[str, D_Ecal],
-) -> D_Ecal:
+    parsed_ecals: dict[str, LinearCalibration],
+) -> LinearCalibration:
     if ecal_id in parsed_ecals:
         return parsed_ecals[ecal_id]
 
@@ -231,7 +234,7 @@ def get_or_parse_ecal(
     if len(coeffs) < 2:
         raise InvalidEcalFormatError()
 
-    ecal = (coeffs[0], coeffs[1])
+    ecal = LinearCalibration(offset = coeffs[0], scale = coeffs[1])
 
     parsed_ecals[ecal_id] = ecal
 
@@ -259,7 +262,7 @@ def import_dbspectrum(
     detectors: dict[str, Element[str]],
     ecals: dict[str, Element[str]],
     parsed_detnames: dict[str, str],
-    parsed_ecals: dict[str, D_Ecal],
+    parsed_ecals: dict[str, LinearCalibration],
     m: Measurement,
 ):
     if not "radDetectorInformationReference" in spectrum_node.attrib:
@@ -281,7 +284,14 @@ def import_dbspectrum(
 
     spectrum = parse_dbspectrum(spectrum_node)
 
-    m.dbs[detname] = DBSpectrum(spectrum, detname, ecal)
+    detector = EnergyDetector(
+        name = detname,
+        ecal = ecal,
+        corrected_ecal = None,
+        eres = None,
+    )
+
+    m.dbs[detname] = DBSpectrum(spectrum, detector)
 
 
 def parse_detpair(detpair_node: Element[str]) -> str:
@@ -296,13 +306,13 @@ def parse_detpair(detpair_node: Element[str]) -> str:
     return name_node.text
 
 
-def get_ecal(
+def get_detector(
     detpair_node: Element[str],
     detectors: dict[str, Element[str]],
     parsed_detnames: dict[str, str],
     m: Measurement,
     det_node_name: str,
-) -> D_Ecal:
+) -> EnergyDetector:
     det_node = detpair_node.find(det_node_name)
 
     if det_node is None:
@@ -318,19 +328,19 @@ def get_ecal(
     if not detname in m.dbs:
         raise DanglingReferenceError(detname)
 
-    return m.dbs[detname].ecal
+    return m.dbs[detname].detector
 
 
-def get_or_parse_c_ecal(
+def get_or_parse_c_dets(
     detpair_node: Element[str],
     detectors: dict[str, Element[str]],
     parsed_detnames: dict[str, str],
     m: Measurement,
-) -> C_Ecal:
+) -> tuple[EnergyDetector, EnergyDetector]:
     return (
-        get_ecal(
+        get_detector(
             detpair_node, detectors, parsed_detnames, m, "RadDetector1Name",
-        ), get_ecal(
+        ), get_detector(
             detpair_node, detectors, parsed_detnames, m, "RadDetector1Name",
         ),
     )
@@ -368,16 +378,23 @@ def import_cdbspectrum(
 
     detpair_node = detpairs[detpair_id]
 
-    detpair = parse_detpair(detpair_node)
+    detpair_name = parse_detpair(detpair_node)
 
-    if detpair in m.cdbs:
-        raise DuplicateNameError(detpair)
+    if detpair_name in m.cdbs:
+        raise DuplicateNameError(detpair_name)
 
-    ecal = get_or_parse_c_ecal(detpair_node, detectors, parsed_detnames, m)
+    dets = get_or_parse_c_dets(detpair_node, detectors, parsed_detnames, m)
 
     spectrum = parse_cdbspectrum(spectrum_node, path)
 
-    m.cdbs[detpair] = CDBSpectrum(spectrum, detpair, ecal)
+    detpair = EnergyDetectorPair(
+        name = detpair_name,
+        first_det = dets[0],
+        second_det = dets[1],
+        eres = None,
+    )
+
+    m.cdbs[detpair_name] = CDBSpectrum(spectrum, detpair)
 
 
 def sort_meas_children(
@@ -389,7 +406,7 @@ def sort_meas_children(
     hardware: dict[str, Element[str]],
     path: Path,
 ):
-    parsed_ecals: dict[str, D_Ecal] = {}
+    parsed_ecals: dict[str, LinearCalibration] = {}
     parsed_detnames: dict[str, str] = {}
     cdbs_nodes: list[Element[str]] = []
 
@@ -454,7 +471,7 @@ def import_m(root: Element[str], path: Path) -> Measurement:
     return m
 
 
-def import_SLOPE_n42(filename: str) -> Measurement:
+def import_slope_n42(filename: str) -> Measurement:
     path = Path(filename)
 
     doc = ElementTree.parse(filename)

@@ -1,5 +1,7 @@
-__pycache__
 target
+Cargo.lock
 build
 out
-Cargo.lock
+__pycache__
+venv
+*egg-info
