@@ -8,7 +8,7 @@ import numpy.typing as npt
 
 from ..dbs import DBSpectrum
 from ..cdbs import CDBSpectrum
-from ..core import Measurement
+from ..core.measurement import Measurement
 from ..core.utils import (
     LinearCalibration, EnergyDetector, EnergyDetectorPair
 )
@@ -306,6 +306,34 @@ def parse_detpair(detpair_node: Element[str]) -> str:
     return name_node.text
 
 
+def parse_window(params: Element[str], param: str) -> int:
+    param_node = params.find(param)
+
+    if param_node is None:
+        raise NodeNotFoundError(param)
+
+    if param_node.text is None:
+        raise EmptyFieldError(param)
+
+    return int(param_node.text)
+
+
+def get_window(
+    detpair_node: Element[str]
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    params = detpair_node.find("CoincidenceParameters")
+
+    if params is None:
+        raise NodeNotFoundError("CoincidenceParameters")
+
+    offset_x = parse_window(params, "OffsetX")
+    offset_y = parse_window(params, "OffsetY")
+    dim_x = parse_window(params, "DimensionX")
+    dim_y = parse_window(params, "DimensionY")
+
+    return ((offset_x, offset_x + dim_x), (offset_y, offset_y + dim_y))
+
+
 def get_detector(
     detpair_node: Element[str],
     detectors: dict[str, Element[str]],
@@ -341,7 +369,7 @@ def get_or_parse_c_dets(
         get_detector(
             detpair_node, detectors, parsed_detnames, m, "RadDetector1Name",
         ), get_detector(
-            detpair_node, detectors, parsed_detnames, m, "RadDetector1Name",
+            detpair_node, detectors, parsed_detnames, m, "RadDetector2Name",
         ),
     )
 
@@ -384,6 +412,11 @@ def import_cdbspectrum(
         raise DuplicateNameError(detpair_name)
 
     dets = get_or_parse_c_dets(detpair_node, detectors, parsed_detnames, m)
+
+    window = get_window(detpair_node)
+
+    dets[0].ecal.offset += window[0][0] * dets[0].ecal.scale
+    dets[1].ecal.offset += window[1][0] * dets[1].ecal.scale
 
     spectrum = parse_cdbspectrum(spectrum_node, path)
 

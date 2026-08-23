@@ -12,7 +12,7 @@ class LinearCalibration:
     offset: float
     scale: float
 
-    def from_index(self, index: float) -> float:
+    def from_index(self, index: float | int) -> float:
         return self.scale * index + self.offset
 
     def to_index_rounded(self, value: float) -> int:
@@ -60,7 +60,7 @@ class KeV:
     value: float
 
     def to_kev(self, _: None | float) -> float:
-        return np.float64(self.value)
+        return self.value
 
 
 @dataclass

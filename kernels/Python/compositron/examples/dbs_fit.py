@@ -1,4 +1,4 @@
-from compositron.core import Measurement
+from compositron.core.measurement import Measurement
 
 m = Measurement(
     "../../../../testdata/depth-profile_Copper_0000.n42"

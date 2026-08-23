@@ -17,7 +17,7 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 | DBS analysis         | [x]   | [x]   | [x]   | [x]    | [ ]   |
 | MePS importer        | [x]   | [x]   | [x]   | [ ]    | [ ]   |
 | PALS analysis        | [x]   | [x]   | [x]   | [ ]    | [ ]   |
-| CDBS analysis        | [x]   | [x]   | [ ]   | [ ]    | [ ]   |
+| CDBS analysis        | [x]   | [x]   | [ ]   | [x]    | [ ]   |
 | Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
 
 **Long Term (in only one of the above languages)**
