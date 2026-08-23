@@ -1,5 +1,0 @@
-<div class="header" (click)="toggleOpen()" (contextmenu)="toggleSelect()">
-  <img [src]="icon()"/>
-  <span [class.selected]="selected()">{{name()}}</span>
-</div>
-<div class="dropdown" [class.openDropdown]="open()"><ng-content [parentSelected]="selected()"/></div>

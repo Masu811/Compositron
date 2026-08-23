@@ -1,9 +1,0 @@
-<div class="header" (contextmenu)="toggleSelect()">
-  <span
-    class="icon"
-    [class.s]="kind() == dtypes.S"
-    [class.c]="kind() == dtypes.C">
-      {{icon()}}
-  </span>
-  <span [class.selected]="selected()">{{name()}}</span>
-</div>
