@@ -23,6 +23,10 @@ function to_index_float(ecal::LinearCalibration, value)::Float64
     (value - ecal.offset) / ecal.scale
 end
 
+function copy(ecal::LinearCalibration)
+    LinearCalibration(ecal.offset, ecal.scale)
+end
+
 # EcalCorrectionOrder
 
 @enum EcalCorrectionOrder zeroth_order first_order no_corr

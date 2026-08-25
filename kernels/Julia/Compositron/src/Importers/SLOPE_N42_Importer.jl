@@ -312,6 +312,33 @@ function parse_detpair(detpair_node::xml.XMLElement)::String
     xml.content(name_node)
 end
 
+function parse_window(params::xml.XMLElement, param::String)::Int
+    param_node = xml.find_element(params, param)
+
+    if isnothing(param_node) || xml.content(param_node) == ""
+        throw(ErrorException("Could not find node $param"))
+    end
+
+    parse(Int, xml.content(param_node))
+end
+
+function get_window(
+    detpair_node::xml.XMLElement
+)::Tuple{Tuple{Int, Int}, Tuple{Int, Int}}
+    params = xml.find_element(detpair_node, "CoincidenceParameters")
+
+    if isnothing(params)
+        throw(ErrorException("Could not find node CoincidenceParameters"))
+    end
+
+    offset_x = parse_window(params, "OffsetX")
+    offset_y = parse_window(params, "OffsetY")
+    dim_x = parse_window(params, "DimensionX")
+    dim_y = parse_window(params, "DimensionY")
+
+    ((offset_x, offset_x + dim_x), (offset_y, offset_y + dim_y))
+end
+
 function get_detector!(
     det_element_name::String,
     detpair_node::xml.XMLElement,
@@ -407,6 +434,11 @@ function import_cdbspectrum!(
     end
 
     dets = get_or_parse_c_dets!(detpair_node, detectors, parsed_detnames, m)
+
+    window = get_window(detpair_node)
+
+    dets[1].ecal.offset += window[1][1] * dets[1].ecal.scale
+    dets[2].ecal.offset += window[2][1] * dets[2].ecal.scale
 
     spectrum = parse_cdbspectrum(spectrum_node, path)
 

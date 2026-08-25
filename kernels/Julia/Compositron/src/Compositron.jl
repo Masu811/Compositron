@@ -15,6 +15,8 @@ module DBS
 end
 
 module CDBS
+    include("CDBS/Fitting.jl")
+    include("CDBS/AntiAliasing.jl")
     include("CDBS/CDBSpectrum.jl")
 end
 
