@@ -619,7 +619,7 @@ impl CDBSpectrum {
         let first_row = (first_row_e as usize).min(self.spectrum.nrows() - 1);
         let last_row = ((last_row_e + 1.) as usize).min(self.spectrum.nrows() - 1);
 
-        let first_col = (first_col_e as usize).min(self.spectrum.nrows() - 1);
+        let first_col = (first_col_e as usize).min(self.spectrum.ncols() - 1);
         let last_col = ((last_col_e + 1.) as usize).min(self.spectrum.ncols() - 1);
 
         let nrows = last_row - first_row;
@@ -1125,7 +1125,7 @@ impl CDBSpectrum {
                     spectrum[i] = self.integrate(
                         Area::Diagonal {
                             width_cel: Unit::KeV(width_cel),
-                            width_cml: Unit::KeV(0.),
+                            width_cml: width,
                             offset_cel: Unit::KeV(offset),
                             offset_cml: Unit::KeV(0.),
                         },

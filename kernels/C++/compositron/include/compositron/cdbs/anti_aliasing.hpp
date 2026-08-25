@@ -7,13 +7,13 @@
 
 #include <Eigen/Core>
 
-#include "compositron/cdbs/vendored/agg/agg_path_storage.h"
-#include "compositron/cdbs/vendored/agg/agg_pixfmt_gray.h"
-#include "compositron/cdbs/vendored/agg/agg_rasterizer_scanline_aa.h"
-#include "compositron/cdbs/vendored/agg/agg_renderer_base.h"
-#include "compositron/cdbs/vendored/agg/agg_rendering_buffer.h"
-#include "compositron/cdbs/vendored/agg/agg_scanline_u.h"
-#include "compositron/cdbs/vendored/agg/agg_renderer_scanline.h"
+#include "agg_path_storage.h"
+#include "agg_pixfmt_gray.h"
+#include "agg_rasterizer_scanline_aa.h"
+#include "agg_renderer_base.h"
+#include "agg_rendering_buffer.h"
+#include "agg_scanline_u.h"
+#include "agg_renderer_scanline.h"
 
 
 namespace compositron::cdbs::anti_aliasing {

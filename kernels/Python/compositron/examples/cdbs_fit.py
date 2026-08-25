@@ -1,6 +1,8 @@
 import time
 
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 from compositron.cdbs.cdbspectrum import DiagonalArea, LinearProjectionBins, LineshapeParamDefinition
 from compositron.core.measurement import Measurement
@@ -15,6 +17,9 @@ m = Measurement(
 c = m.cdbs["OAA x OAB"]
 
 c.correct_ecal(EcalCorrectionOrder.FIRST)
+
+print(c.detpair.first_det.corrected_ecal)
+print(c.detpair.second_det.corrected_ecal)
 
 # S parameter calculation
 

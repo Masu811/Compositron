@@ -1,10 +1,25 @@
 from dataclasses import dataclass
+from pathlib import Path
 
-import celiagg as agg
+import ctypes
 import numpy as np
 import numpy.typing as npt
 
 from ..constants import PI
+
+
+agg = ctypes.CDLL(Path(__file__).parent / "../../../../../shared/agg/libagg.so")
+
+agg.agg_aa.restype = None
+agg.agg_aa.argtypes = [
+    np.ctypeslib.ndpointer(dtype=np.uint8, flags='C_CONTIGUOUS'),
+    ctypes.c_int,
+    ctypes.c_int,
+    np.ctypeslib.ndpointer(dtype=np.float64, flags='C_CONTIGUOUS'),
+    np.ctypeslib.ndpointer(dtype=np.float64, flags='C_CONTIGUOUS'),
+    ctypes.c_int
+]
+
 
 
 @dataclass
@@ -134,24 +149,15 @@ def agg_aa(
 
     # Transform our coords (pixel centers at integer coords)
     # to agg's coords (pixel boundaries at integer coords)
-    vertices = [(v.x + 0.5, v.y + 0.5) for v in vertices]
+    vertices = [Vertex(v.x + 0.5, v.y + 0.5) for v in vertices]
 
-    if any(v[0] < 0 or v[0] > ncols or v[1] < 0 or v[1] > nrows for v in vertices):
+    if any(v.x < 0 or v.x > ncols or v.y < 0 or v.y > nrows for v in vertices):
         raise ValueError("Polygon vertices are out of matrix bounds")
 
-    canvas = agg.CanvasG8(weights)
+    vx = np.asarray([v.x for v in vertices])
+    vy = np.asarray([v.y for v in vertices])
 
-    path = agg.Path()
-    path.lines(vertices)
-    path.close()
-
-    state = agg.GraphicsState(
-        anti_aliased=True, drawing_mode=agg.DrawingMode.DrawFill
-    )
-    transform = agg.Transform()
-    fill = agg.SolidPaint(1., 1., 1.)
-
-    canvas.draw_shape(path, transform, state, fill=fill)
+    agg.agg_aa(weights, nrows, ncols, vx, vy, len(vertices))
 
     return weights
 

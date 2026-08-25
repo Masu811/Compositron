@@ -1,4 +1,5 @@
-use compositron::core::{Measurement, measurement::{DataFormat, ImportError}};
+use compositron::core::Measurement;
+use compositron::importers::{DataFormat, ImportError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

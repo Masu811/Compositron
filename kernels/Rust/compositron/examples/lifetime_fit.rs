@@ -1,4 +1,5 @@
 use compositron::core::Measurement;
+use compositron::importers::DataFormat;
 use compositron::lifetime_model;
 
 fn main() -> anyhow::Result<()> {
@@ -6,7 +7,7 @@ fn main() -> anyhow::Result<()> {
 
     m.import(
         "../../../../testdata/1_W3Re6_2.00keV_301.0K_10.0Mio_PALS_01.05.26_08.42.22.dat",
-        compositron::core::measurement::DataFormat::MePSDat
+        DataFormat::MePSDat
     )?;
 
     let lt_model = lifetime_model!(

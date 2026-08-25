@@ -6,6 +6,7 @@ use compositron::core::utils::{Unit, EcalCorrectionOrder};
 use compositron::cdbs::cdbspectrum::{
     Area, LineshapeParamDefinition, ProjectionBins
 };
+use compositron::importers::DataFormat;
 
 fn main() -> anyhow::Result<()> {
     // Import
@@ -14,7 +15,7 @@ fn main() -> anyhow::Result<()> {
 
     m.import(
         "../../../../testdata/depth-profile_Copper_0000.n42",
-        compositron::core::measurement::DataFormat::SlopeN42
+        DataFormat::SlopeN42
     )?;
 
     let c = m.cdbs.get_mut("OAA x OAB").unwrap();

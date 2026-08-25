@@ -28,19 +28,11 @@ add_library(${PROJECT_NAME} SHARED
     src/importers/meps_dat_importer.cpp
 )
 
-file(GLOB AGG_SOURCES
-    "${PROJECT_SOURCE_DIR}/src/cdbs/vendored/agg/*"
-)
-
-target_sources(${PROJECT_NAME} PRIVATE
-    ${AGG_SOURCES}
-)
-
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${PROJECT_SOURCE_DIR}/include
 )
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/cdbs/vendored/agg
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${PROJECT_SOURCE_DIR}/../../shared/agg/vendored
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC

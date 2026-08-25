@@ -430,10 +430,18 @@ class CDBSpectrum:
                 j0 = argmax % self.peak.shape[1]
                 i0 = int(argmax // self.peak.shape[1])
 
+                print(i0)
+                print(j0)
+
                 max_val = self.peak[i0, j0]
+
+                print(max_val)
 
                 y0 = ecal_1.from_index(i0 + self.peak_bnds[0][0])
                 x0 = ecal_2.from_index(j0 + self.peak_bnds[1][0])
+
+                print(x0)
+                print(y0)
 
                 self.peak_params = fit_gauss2d(
                     x, y, self.peak, [max_val, x0, y0, 1, 2, -0.78],
@@ -556,7 +564,7 @@ class CDBSpectrum:
 
             if any(
                 not np.isfinite(x) for x in [
-                    width_cel, width_cel, offset_cel, offset_cml
+                    width_cel, width_cml, offset_cel, offset_cml
                 ]
             ):
                 raise ValueError("Invalid boundaries for area")
@@ -615,6 +623,12 @@ class CDBSpectrum:
             return np.sum(view * weights, dtype=np.float64) / 255.
         else:
             view = self.spectrum[upper_row:upper_row+nrows, left_col:left_col+ncols]
+
+            import matplotlib.pyplot as plt
+            from matplotlib.colors import LogNorm
+
+            plt.imshow(view, origin="lower", norm=LogNorm(vmin=1), cmap="jet")
+            plt.show()
 
             return np.sum(view.astype(np.uint64) * weights, dtype=np.uint64) / 255.
 

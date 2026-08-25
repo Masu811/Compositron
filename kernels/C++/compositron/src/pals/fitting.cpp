@@ -92,7 +92,11 @@ private:
             comp.intensity.min = std::max(0., comp.intensity.min);
             comp.intensity.max = std::min(1., comp.intensity.max);
         }
+    }
 
+
+    void normalize_and_fix_params() {
+        auto& model = output_model.value();
 
         double l_int_sum = std::accumulate(
             model.lifetime_components.begin(),
@@ -104,11 +108,6 @@ private:
         for (auto& comp : model.lifetime_components) {
             comp.intensity.val /= l_int_sum;
         }
-    }
-
-
-    void normalize_and_fix_params() {
-        auto& model = output_model.value();
 
         double r_int_sum = std::accumulate(
             model.resolution_components.begin(),
@@ -162,24 +161,16 @@ private:
 
         for (auto& lt_comp : model.lifetime_components) {
             opt.push_back(lt_comp.lifetime.val);
-            if (lt_comp.intensity.val == 0) {
-                opt.push_back(0);
-            } else {
-                opt.push_back(lt_comp.intensity.val / remaining_l_int);
-                remaining_l_int -= lt_comp.intensity.val;
-            }
+            opt.push_back(lt_comp.intensity.val / remaining_l_int);
+            remaining_l_int -= lt_comp.intensity.val;
         }
 
         double remaining_r_int = 1;
 
         for (auto& res_comp : model.resolution_components) {
             opt.push_back(res_comp.fwhm.val / FWHM_OVER_SIGMA);
-            if (res_comp.intensity.val == 0) {
-                opt.push_back(0);
-            } else {
-                opt.push_back(res_comp.intensity.val / remaining_r_int);
-                remaining_r_int -= res_comp.intensity.val;
-            }
+            opt.push_back(res_comp.intensity.val / remaining_r_int);
+            remaining_r_int -= res_comp.intensity.val;
             opt.push_back(res_comp.t0.val);
         }
     }

@@ -1,4 +1,5 @@
-use compositron::core::{Measurement, measurement::DataFormat};
+use compositron::core::Measurement;
+use compositron::importers::DataFormat;
 
 fn main() -> anyhow::Result<()> {
     let mut m = Measurement::new();
