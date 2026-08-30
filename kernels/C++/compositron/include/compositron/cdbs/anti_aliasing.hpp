@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <algorithm>
 #include <ranges>
 #include <stdexcept>
@@ -108,7 +109,7 @@ std::array<size_t, 4> get_bounding_box(std::vector<Vertex>& vertices);
 
 
 template <typename T>
-Eigen::MatrixX<uint8_t> agg_aa(size_t nrows, size_t ncols, T polygon) {
+Eigen::MatrixX<uint8_t> agg_aa(size_t nrows, size_t ncols, T& polygon) {
     if (nrows < 3 || ncols < 3) {
         throw std::runtime_error("Input data is too small in size");
     }
@@ -124,7 +125,7 @@ Eigen::MatrixX<uint8_t> agg_aa(size_t nrows, size_t ncols, T polygon) {
 
     std::transform(
         vertices.begin(), vertices.end(), vertices.begin(),
-        [](const auto& v) { return Vertex{v[0] + 0.5, v[1] + 0.5}; }
+        [](const auto& v) { return Vertex { v[0] + 0.5, v[1] + 0.5 }; }
     );
 
     if (std::any_of(vertices.begin(), vertices.end(), [nrows, ncols](const auto& v) {
@@ -189,7 +190,7 @@ Polygon intersect_convex_polygons(T a, U b) {
         int lb = input.size();
 
         for (auto j : std::views::iota(0, lb)) {
-            Vertex curr = input[i];
+            Vertex curr = input[j];
             Vertex prev = input[(j + lb - 1) % lb];
 
             bool curr_inside = inside(curr, edge_start, edge_end);

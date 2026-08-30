@@ -7,13 +7,13 @@ use compositron::cdbs::cdbspectrum::{
     Area, LineshapeParamDefinition, ProjectionBins
 };
 use compositron::importers::DataFormat;
+use compositron::spectrum2d_match;
+
 
 fn main() -> anyhow::Result<()> {
     // Import
 
-    let mut m = Measurement::new();
-
-    m.import(
+    let mut m = Measurement::from_file(
         "../../../../testdata/depth-profile_Copper_0000.n42",
         DataFormat::SlopeN42
     )?;
@@ -30,16 +30,12 @@ fn main() -> anyhow::Result<()> {
             Area::Diagonal {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::KeV(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         denom: &[
             Area::Diagonal {
                 width_cel: Unit::KeV(10.),
                 width_cml: Unit::KeV(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         in_corrected_peak: false,
@@ -72,8 +68,6 @@ fn main() -> anyhow::Result<()> {
     for elem in p.spectrum.iter() {
         write!(f, "{elem}\n").unwrap();
     }
-
-    println!("{:?}", p.ecal);
 
     Ok(())
 }

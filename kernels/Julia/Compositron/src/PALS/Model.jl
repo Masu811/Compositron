@@ -1,15 +1,21 @@
-using ..Utils: FitParam
+using ..Utils
+
+export LifetimeComponent, ResolutionComponent, LifetimeModel,
+    FitParamInitializerList
+
 
 mutable struct LifetimeComponent
     lifetime::FitParam
     intensity::FitParam
 end
 
+
 mutable struct ResolutionComponent
     fwhm::FitParam
     intensity::FitParam
     t0::FitParam
 end
+
 
 mutable struct LifetimeModel
     lifetime_components::Vector{LifetimeComponent}
@@ -19,6 +25,7 @@ mutable struct LifetimeModel
     shift_component::FitParam
 end
 
+
 const FitParamInitializerList = Union{
     Tuple{<:Number},
     Tuple{<:Number, <:Number},
@@ -27,6 +34,7 @@ const FitParamInitializerList = Union{
     Tuple{<:Number, Bool, <:Number},
     Tuple{<:Number, Bool, <:Number, <:Number}
 }
+
 
 function LifetimeModel(params::Pair{String, <:FitParamInitializerList}...)
     lifetime_components = Vector{LifetimeComponent}()

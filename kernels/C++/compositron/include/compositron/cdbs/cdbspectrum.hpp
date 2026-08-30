@@ -6,7 +6,6 @@
 #include <variant>
 #include <vector>
 #include <string>
-#include <map>
 
 #include "compositron/core/utils.hpp"
 #include "compositron/core/fitting.hpp"
@@ -32,10 +31,23 @@ class DiagonalArea {
 public:
     core::utils::Unit width_cel;
     core::utils::Unit width_cml;
+
+    DiagonalArea(
+        core::utils::Unit width_cel,
+        core::utils::Unit width_cml
+    ) : width_cel(width_cel),
+        width_cml(width_cml) {}
+};
+
+
+class DiagonalAreaWithOffset {
+public:
+    core::utils::Unit width_cel;
+    core::utils::Unit width_cml;
     core::utils::Unit offset_cel;
     core::utils::Unit offset_cml;
 
-    DiagonalArea(
+    DiagonalAreaWithOffset(
         core::utils::Unit width_cel,
         core::utils::Unit width_cml,
         core::utils::Unit offset_cel,
@@ -65,7 +77,12 @@ public:
 };
 
 
-using Area = std::variant<DiagonalArea, AxisAlignedArea, EllipseArea>;
+using Area = std::variant<
+    DiagonalArea,
+    DiagonalAreaWithOffset,
+    AxisAlignedArea,
+    EllipseArea
+>;
 
 
 class LineshapeParam {
@@ -92,17 +109,13 @@ const std::array<LineshapeParamDefinition, 3> STD_LINESHAPE_PARAMS{{
         {
             DiagonalArea(
                 core::utils::Unit(2, core::utils::KEV),
-                core::utils::Unit(1, core::utils::ERES),
-                core::utils::Unit(0, core::utils::KEV),
-                core::utils::Unit(0, core::utils::KEV)
+                core::utils::Unit(1, core::utils::ERES)
             )
         },
         {
             DiagonalArea(
                 core::utils::Unit(INFINITY, core::utils::KEV),
-                core::utils::Unit(1, core::utils::ERES),
-                core::utils::Unit(0, core::utils::KEV),
-                core::utils::Unit(0, core::utils::KEV)
+                core::utils::Unit(1, core::utils::ERES)
             )
         },
         true
@@ -110,13 +123,13 @@ const std::array<LineshapeParamDefinition, 3> STD_LINESHAPE_PARAMS{{
     {
         "W",
         {
-            DiagonalArea(
+            DiagonalAreaWithOffset(
                 core::utils::Unit(1, core::utils::KEV),
                 core::utils::Unit(1, core::utils::ERES),
                 core::utils::Unit(3, core::utils::KEV),
                 core::utils::Unit(0, core::utils::KEV)
             ),
-            DiagonalArea(
+            DiagonalAreaWithOffset(
                 core::utils::Unit(1, core::utils::KEV),
                 core::utils::Unit(1, core::utils::ERES),
                 core::utils::Unit(-3, core::utils::KEV),
@@ -126,9 +139,7 @@ const std::array<LineshapeParamDefinition, 3> STD_LINESHAPE_PARAMS{{
         {
             DiagonalArea(
                 core::utils::Unit(INFINITY, core::utils::KEV),
-                core::utils::Unit(1, core::utils::ERES),
-                core::utils::Unit(0, core::utils::KEV),
-                core::utils::Unit(0, core::utils::KEV)
+                core::utils::Unit(1, core::utils::ERES)
             )
         },
         true
@@ -138,9 +149,7 @@ const std::array<LineshapeParamDefinition, 3> STD_LINESHAPE_PARAMS{{
         {
             DiagonalArea(
                 core::utils::Unit(INFINITY, core::utils::KEV),
-                core::utils::Unit(1, core::utils::ERES),
-                core::utils::Unit(0, core::utils::KEV),
-                core::utils::Unit(0, core::utils::KEV)
+                core::utils::Unit(1, core::utils::ERES)
             )
         },
         {
@@ -164,7 +173,6 @@ public:
     std::optional<core::utils::LinearCalibration> ecal;
     std::optional<Eigen::VectorXd> bins;
     double counts;
-    double dcounts;
 
     Projection(
         Eigen::VectorXd spectrum,
@@ -189,13 +197,11 @@ public:
     compositron::core::utils::Spectrum2D spectrum;
     compositron::core::utils::EnergyDetectorPair detpair;
     uint64_t counts = 0;
-    double dcounts = NAN;
     std::optional<Eigen::MatrixXd> peak;
     std::optional<std::array<std::array<size_t, 2>, 2>> peak_bnds;
     std::optional<double> peak_counts;
-    std::optional<double> dpeak_counts;
-    std::map<std::string, core::fitting::SimpleFitParam> peak_params;
-    std::map<std::string, LineshapeParam> lineshape_params;
+    std::unordered_map<std::string, core::fitting::SimpleFitParam> peak_params;
+    std::unordered_map<std::string, LineshapeParam> lineshape_params;
 
     CDBSpectrum() = delete;
 
@@ -220,8 +226,6 @@ public:
             detpair
     ) {}
 
-    void default_analyze();
-
     Projection project_axes(Axis axis);
 
 private:
@@ -245,6 +249,12 @@ private:
 
     anti_aliasing::Polygon calculate_polygon_boundaries(
         const DiagonalArea& area,
+        std::array<core::utils::LinearCalibration, 2> ecal,
+        std::array<std::array<size_t, 2>, 2> peak_bnds
+    );
+
+    anti_aliasing::Polygon calculate_polygon_boundaries(
+        const DiagonalAreaWithOffset& area,
         std::array<core::utils::LinearCalibration, 2> ecal,
         std::array<std::array<size_t, 2>, 2> peak_bnds
     );
@@ -328,6 +338,8 @@ private:
 public:
     double integrate(const DiagonalArea& area, bool in_corrected_peak);
 
+    double integrate(const DiagonalAreaWithOffset& area, bool in_corrected_peak);
+
     double integrate(const AxisAlignedArea& area, bool in_corrected_peak);
 
     double integrate(const EllipseArea& area, bool in_corrected_peak);
@@ -335,6 +347,8 @@ public:
     LineshapeParam& calc_lineshape_param(
         const LineshapeParamDefinition& definition
     );
+
+    void default_analyze();
 
     Projection project_diagonal(
         core::utils::Unit bin_width,

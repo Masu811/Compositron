@@ -32,6 +32,12 @@ class Axis(Enum):
 class DiagonalArea:
     width_cel: Unit
     width_cml: Unit
+
+
+@dataclass
+class DiagonalAreaWithOffset:
+    width_cel: Unit
+    width_cml: Unit
     offset_cel: Unit
     offset_cml: Unit
 
@@ -48,7 +54,7 @@ class EllipseArea:
     radius_cml: Unit
 
 
-Area = DiagonalArea | AxisAlignedArea | EllipseArea
+Area = DiagonalArea | DiagonalAreaWithOffset | AxisAlignedArea | EllipseArea
 
 
 @dataclass
@@ -87,36 +93,23 @@ class LineshapeParamDefinition:
 STD_LINESHAPE_PARAMS: list[LineshapeParamDefinition] = [
     LineshapeParamDefinition(
         name = "S",
-        num = [
-            DiagonalArea(KeV(2), Eres(1), KeV(0), KeV(0))
-        ],
-        denom = [
-            DiagonalArea(KeV(np.inf), Eres(1), KeV(0), KeV(0))
-        ],
+        num = [DiagonalArea(KeV(2), Eres(1))],
+        denom = [DiagonalArea(KeV(np.inf), Eres(1))],
         in_corrected_peak = True,
     ),
     LineshapeParamDefinition(
         name = "W",
         num = [
-            DiagonalArea(KeV(1), Eres(1), KeV(3), KeV(0)),
-            DiagonalArea(KeV(1), Eres(1), KeV(-3), KeV(0)),
+            DiagonalAreaWithOffset(KeV(1), Eres(1), KeV(3), KeV(0)),
+            DiagonalAreaWithOffset(KeV(1), Eres(1), KeV(-3), KeV(0)),
         ],
-        denom = [
-            DiagonalArea(KeV(np.inf), Eres(1), KeV(0), KeV(0))
-        ],
+        denom = [DiagonalArea(KeV(np.inf), Eres(1))],
         in_corrected_peak = True,
     ),
     LineshapeParamDefinition(
         name = "P/T",
-        num = [
-            DiagonalArea(KeV(np.inf), Eres(1), KeV(0), KeV(0))
-        ],
-        denom = [
-            AxisAlignedArea(
-                first_det_bnds = (-np.inf, np.inf),
-                second_det_bnds = (-np.inf, np.inf),
-            )
-        ],
+        num = [DiagonalArea(KeV(np.inf), Eres(1))],
+        denom = [AxisAlignedArea((-np.inf, np.inf), (-np.inf, np.inf))],
         in_corrected_peak = False,
     ),
 ]
@@ -225,7 +218,6 @@ class Projection:
     ecal: None | LinearCalibration
     bins: None | npt.NDArray[np.floating]
     counts: float
-    dcounts: float
 
     def __init__(
         self,
@@ -234,15 +226,12 @@ class Projection:
         ecal: None | LinearCalibration,
         bins: None | npt.NDArray[np.floating],
     ) -> None:
-        counts = np.sum(spectrum)
-        dcounts = np.sqrt(counts)
-
         self.spectrum = spectrum
         self.parent_detector_name = parent_detector_name
         self.ecal = ecal
         self.bins = bins
-        self.counts = float(counts)
-        self.dcounts = dcounts
+        self.counts = float(np.sum(spectrum))
+
 
     def get_energies(self) -> npt.NDArray[np.floating]:
         if self.ecal is not None:
@@ -254,6 +243,7 @@ class Projection:
             return 0.5 * (self.bins[:-1] + self.bins[1:])
 
         raise ValueError("Projection is missing ecal and bins")
+
 
     def fold(self) -> FoldedProjection:
         if self.ecal is not None:
@@ -322,6 +312,7 @@ class Projection:
 
         raise ValueError("Projection is missing ecal and bins")
 
+
     def to_dbspectrum(self) -> DBSpectrum:
         if self.ecal is None:
             raise ValueError(
@@ -345,41 +336,25 @@ class CDBSpectrum:
     spectrum: Spectrum
     detpair: EnergyDetectorPair
     counts: int
-    dcounts: float
     peak: None | npt.NDArray[np.floating]
     peak_bnds: None | tuple[tuple[int, int], tuple[int, int]]
     peak_counts: None | float
-    dpeak_counts: None | float
     peak_params: dict[str, SimpleFitParam]
     lineshape_params: dict[str, LineshapeParam]
+
 
     def __init__(
         self, spectrum: npt.ArrayLike, detpair: EnergyDetectorPair,
     ) -> None:
-        counts = np.sum(spectrum)
-        dcounts = np.sqrt(counts)
-
         self.spectrum = to_min_type_spectrum(spectrum)
         self.detpair = detpair
-        self.counts = counts
-        self.dcounts = dcounts
+        self.counts = np.sum(spectrum)
         self.peak = None
         self.peak_bnds = None
         self.peak_counts = None
-        self.dpeak_counts = None
         self.peak_params = {}
         self.lineshape_params = {}
 
-    def default_analyze(self) -> None:
-        self.correct_ecal(EcalCorrectionOrder.FIRST)
-
-        self.extract_peak((10., 10.), BackgroundModel.NONE)
-
-        for param in STD_LINESHAPE_PARAMS:
-            self.calc_lineshape_param(param)
-
-        self.peak = None
-        self.peak_bnds = None
 
     def project_axes(self, onto_axis: Axis) -> Projection:
         match onto_axis:
@@ -401,6 +376,7 @@ class CDBSpectrum:
                     ecal = self.detpair.second_det.ecal,
                     bins = None,
                 )
+
 
     def _fit_2d_peak(self, bg_model: BackgroundModel) -> None:
         if self.peak is None or self.peak_bnds is None:
@@ -430,26 +406,20 @@ class CDBSpectrum:
                 j0 = argmax % self.peak.shape[1]
                 i0 = int(argmax // self.peak.shape[1])
 
-                print(i0)
-                print(j0)
-
                 max_val = self.peak[i0, j0]
-
-                print(max_val)
 
                 y0 = ecal_1.from_index(i0 + self.peak_bnds[0][0])
                 x0 = ecal_2.from_index(j0 + self.peak_bnds[1][0])
 
-                print(x0)
-                print(y0)
-
                 self.peak_params = fit_gauss2d(
-                    x, y, self.peak, [max_val, x0, y0, 1, 2, -0.78],
+                    x, y, self.peak, [max_val, x0, y0, 0.7, 1.8, -0.78],
                 )
+
 
     def _subtract_bg(self, bg_model: BackgroundModel) -> None:
         if bg_model == BackgroundModel.NONE:
             return
+
 
     def extract_peak(
         self, peak_window_kev: tuple[float, float], bg_model: BackgroundModel,
@@ -486,7 +456,7 @@ class CDBSpectrum:
         peak_counts = np.sum(self.peak)
 
         self.peak_counts = peak_counts
-        self.dpeak_counts = np.sqrt(peak_counts)
+
 
     def correct_ecal(self, order: EcalCorrectionOrder) -> None:
         if order == EcalCorrectionOrder.NONE:
@@ -514,6 +484,7 @@ class CDBSpectrum:
 
         self.detpair.first_det.corrected_ecal = ecal_1
         self.detpair.second_det.corrected_ecal = ecal_2
+
 
     def _get_max_projection_length(
         self,
@@ -545,6 +516,7 @@ class CDBSpectrum:
 
         return min(abs(v[0]) for v in [x1, x2, x3, x4, x5, x6, x7, x8])
 
+
     def _calculate_polygon_boundaries(
         self,
         area: Area,
@@ -552,6 +524,21 @@ class CDBSpectrum:
         peak_bnds: tuple[tuple[int, int], tuple[int, int]],
     ) -> ConvexToVerticesCounterClockwise:
         if isinstance(area, DiagonalArea):
+            width_cel = area.width_cel.to_kev(self.detpair.eres)
+            width_cml = area.width_cml.to_kev(self.detpair.eres)
+
+            if np.isinf(width_cel):
+                width_cel = self._get_max_projection_length(
+                    0.5 * width_cml, ecal, peak_bnds
+                )
+
+            if any(not np.isfinite(x) for x in [width_cel, width_cml]):
+                raise ValueError("Invalid boundaries for area")
+
+            return convert_parallelogram(
+                width_cel, width_cml, 0, 0, ecal, peak_bnds,
+            )
+        elif isinstance(area, DiagonalAreaWithOffset):
             width_cel = area.width_cel.to_kev(self.detpair.eres)
             width_cml = area.width_cml.to_kev(self.detpair.eres)
             offset_cel = area.offset_cel.to_kev(self.detpair.eres)
@@ -602,6 +589,7 @@ class CDBSpectrum:
 
             return convert_ellipse(radius_cel, radius_cml, ecal, peak_bnds)
 
+
     def _blend_and_sum(
         self,
         weights: npt.NDArray[np.uint8],
@@ -620,17 +608,12 @@ class CDBSpectrum:
 
             view = self.peak[upper_row:upper_row+nrows, left_col:left_col+ncols]
 
-            return np.sum(view * weights, dtype=np.float64) / 255.
+            return np.sum(np.multiply(view, weights, dtype=np.float64)) / 255.
         else:
             view = self.spectrum[upper_row:upper_row+nrows, left_col:left_col+ncols]
 
-            import matplotlib.pyplot as plt
-            from matplotlib.colors import LogNorm
+            return np.sum(np.multiply(view, weights, dtype=np.uint64)) / 255.
 
-            plt.imshow(view, origin="lower", norm=LogNorm(vmin=1), cmap="jet")
-            plt.show()
-
-            return np.sum(view.astype(np.uint64) * weights, dtype=np.uint64) / 255.
 
     def integrate(self, area: Area, in_corrected_peak: bool) -> float:
         ecal_1 = (
@@ -682,6 +665,7 @@ class CDBSpectrum:
             ncols_view,
             in_corrected_peak
         )
+
 
     def calc_lineshape_param(
         self, definition: LineshapeParamDefinition
@@ -797,6 +781,19 @@ class CDBSpectrum:
 
         return ls_param
 
+
+    def default_analyze(self) -> None:
+        self.correct_ecal(EcalCorrectionOrder.FIRST)
+
+        self.extract_peak((10., 10.), BackgroundModel.NONE)
+
+        for param in STD_LINESHAPE_PARAMS:
+            self.calc_lineshape_param(param)
+
+        self.peak = None
+        self.peak_bnds = None
+
+
     def project_digonal(
         self,
         bins: ProjectionBins,
@@ -850,7 +847,7 @@ class CDBSpectrum:
 
             spectrum = [
                 self.integrate(
-                    DiagonalArea(
+                    DiagonalAreaWithOffset(
                         KeV(u_bin), width, KeV(ecal.from_index(i)), KeV(0)
                     ),
                     in_corrected_peak
@@ -880,7 +877,7 @@ class CDBSpectrum:
                 offset = 0.5 * (left_edge + right_edge)
 
                 spectrum[i] = self.integrate(
-                    DiagonalArea(
+                    DiagonalAreaWithOffset(
                         KeV(width_cel), width, KeV(offset), KeV(0)
                     ),
                     in_corrected_peak

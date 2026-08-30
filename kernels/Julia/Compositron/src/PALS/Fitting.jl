@@ -2,8 +2,11 @@ using SpecialFunctions: erfc
 using NonlinearSolve
 using LinearAlgebra
 
-using ..Constants: SQRT_2, SQRT_2PI
-using ..Utils: FitParam
+using ..Constants
+using ..Utils
+
+export lifetime_spectrum_component, FitResult, fit_lifetime_spectrum
+
 
 function lifetime_spectrum_component(
     t::Vector{Float64},
@@ -29,6 +32,7 @@ function lifetime_spectrum_component(
     @. 0.5 * n * l_int * r_int * one_over_tau * e * c
 end
 
+
 mutable struct FitContext
     n_l::Int
     n_r::Int
@@ -45,6 +49,7 @@ mutable struct FitContext
     fixed_param_idx::Int
 end
 
+
 function _get_param(idx::Int, p, ctx::FitContext)
     signed_idx = ctx.signed_param_idcs[idx]
 
@@ -54,6 +59,7 @@ function _get_param(idx::Int, p, ctx::FitContext)
         ctx.fixed_params[abs(signed_idx)]
     end
 end
+
 
 function _transform_intensities!(p, ctx::FitContext)
     leftover_intensity = ctx.available_l_intensity
@@ -93,6 +99,7 @@ function _transform_intensities!(p, ctx::FitContext)
     return abs_l_intensities, abs_r_intensities
 end
 
+
 function _get_all_params!(p, ctx::FitContext)
     abs_l_intensities, abs_r_intensities = _transform_intensities!(p, ctx)
 
@@ -117,6 +124,7 @@ function _get_all_params!(p, ctx::FitContext)
 
     p_buffer
 end
+
 
 function _m(t, p, ctx::FitContext)
     params = _get_all_params!(p, ctx)
@@ -148,6 +156,7 @@ function _m(t, p, ctx::FitContext)
 
     y
 end
+
 
 function _j_m(t, p, ctx::FitContext)
     params = _get_all_params!(p, ctx)
@@ -183,7 +192,7 @@ function _j_m(t, p, ctx::FitContext)
             one_over_tau = 1 / tau
             one_over_tau_sq = one_over_tau^2
             one_over_sig_sqrt_2 = 1 / (sig * SQRT_2)
-            one_over_tau_sqrt_2_pi = 1 / (tau * SQRT_2PI)
+            one_over_tau_sqrt_2_pi = 1 / (tau * SQRT_2_PI)
 
             t_shifted = t .- (t0 + r_t0)
 
@@ -325,8 +334,9 @@ function _j_m(t, p, ctx::FitContext)
     j
 end
 
+
 function _set_model_defaults!(
-    model::LifetimeModel, x::Vector{Float64}, counts::Int, peak_center::Float64
+    model::LifetimeModel, x::Vector{Float64}, counts::UInt64, peak_center::Float64
 )
     if model.scale_component.default_initialized
         model.scale_component.val = 2. * counts
@@ -353,6 +363,7 @@ function _set_model_defaults!(
         comp.intensity.max = min(1, comp.intensity.max)
     end
 end
+
 
 function _normalize_and_fix_params!(model::LifetimeModel, ctx::FitContext)
     l_norm = sum(comp.intensity.val for comp in model.lifetime_components)
@@ -392,6 +403,7 @@ function _normalize_and_fix_params!(model::LifetimeModel, ctx::FitContext)
     end
 end
 
+
 function _gobble_component!(
     val::Float64, vary::Bool, min::Float64, max::Float64, ctx::FitContext
 )
@@ -407,6 +419,7 @@ function _gobble_component!(
         ctx.fixed_param_idx -= 1
     end
 end
+
 
 function _gobble_model!(model::LifetimeModel, ctx::FitContext)
     for comp in [
@@ -457,10 +470,11 @@ function _gobble_model!(model::LifetimeModel, ctx::FitContext)
     end
 end
 
+
 function _prepare_fit!(
     model::LifetimeModel,
     x::Vector{Float64},
-    counts::Int,
+    counts::UInt64,
     peak_center::Float64
 )::FitContext
     _set_model_defaults!(model, x, counts, peak_center)
@@ -500,6 +514,7 @@ function _prepare_fit!(
     ctx
 end
 
+
 function _paste_fit_result_values!(
     opt::AbstractVector{Float64}, model::LifetimeModel, ctx::FitContext
 )
@@ -523,6 +538,7 @@ function _paste_fit_result_values!(
     end
 end
 
+
 function _get_error(
     idx::Int, err::AbstractVector{Float64}, ctx::FitContext
 )::Float64
@@ -534,6 +550,7 @@ function _get_error(
         0.
     end
 end
+
 
 function _paste_fit_result_errors!(
     err::AbstractVector{Float64},
@@ -598,6 +615,7 @@ function _paste_fit_result_errors!(
     end
 end
 
+
 mutable struct FitResult
     model::LifetimeModel
     n_dpoints::Int
@@ -606,6 +624,7 @@ mutable struct FitResult
     red_chi_2::Float64
     cov::Union{Nothing, Matrix{Float64}}
 end
+
 
 function _post_fit!(
     sol,
@@ -657,11 +676,12 @@ function _post_fit!(
     fit_result
 end
 
+
 function fit_lifetime_spectrum(
     x::Vector{Float64},
     y::Vector{Float64},
     model::LifetimeModel,
-    counts::Int,
+    counts::UInt64,
     peak_center::Float64
 )::FitResult
     ctx = _prepare_fit!(model, x, counts, peak_center)

@@ -1,5 +1,6 @@
 #include "compositron/pals/palspectrum.hpp"
 
+#include <Eigen/Core>
 #include <algorithm>
 #include <ranges>
 #include <stdexcept>
@@ -33,20 +34,17 @@ PALSpectrum::PALSpectrum(
         },
         this->spectrum.data
     );
-    dcounts = std::sqrt(counts);
 }
 
 
-void PALSpectrum::extract_peak(size_t fit_start_idx, size_t fit_end_idx) {
+Eigen::VectorXd PALSpectrum::extract_peak(size_t fit_start_idx, size_t fit_end_idx) {
     size_t max_size = spectrum.size();
 
     if (fit_start_idx >= max_size || fit_end_idx >= max_size) {
         throw std::runtime_error("Fit range lies outside of spectrum");
     }
 
-    peak_bnds = {fit_start_idx, fit_end_idx};
-
-    peak = std::visit(
+    return std::visit(
         [fit_start_idx, fit_end_idx](const auto& spectrum) {
             auto peak = spectrum(Eigen::seq(fit_start_idx, fit_end_idx));
             return Eigen::VectorX<double>(peak.template cast<double>());
@@ -56,21 +54,21 @@ void PALSpectrum::extract_peak(size_t fit_start_idx, size_t fit_end_idx) {
 }
 
 
-Eigen::VectorXd PALSpectrum::get_peak_energies() {
+Eigen::VectorXd PALSpectrum::get_peak_energies(
+    size_t fit_start_idx, size_t fit_end_idx
+) {
     auto tcal = detpair.corrected_tcal.value_or(detpair.tcal);
 
-    auto [left_peak_idx, right_peak_idx] = peak_bnds.value();
+    size_t len = fit_end_idx - fit_start_idx + 1;
 
-    size_t len = right_peak_idx - left_peak_idx + 1;
-
-    auto linspace = Eigen::VectorXd::LinSpaced(len, left_peak_idx, right_peak_idx);
+    auto linspace = Eigen::VectorXd::LinSpaced(len, fit_start_idx, fit_end_idx);
 
     return linspace.array() * tcal.scale + tcal.offset;
 }
 
 
-void PALSpectrum::get_peak_center() {
-    core::fitting::FitResult fit_result = std::visit(
+double PALSpectrum::get_peak_center() {
+    auto result = std::visit(
         [](const auto& spectrum) {
             Eigen::Index argmax;
             double max = spectrum.maxCoeff(&argmax);
@@ -87,37 +85,38 @@ void PALSpectrum::get_peak_center() {
             auto peak = spectrum(Eigen::seq(left_idx, right_idx));
             auto y = Eigen::VectorX<double>(peak.template cast<double>());
 
-            return dbs::fitting::fit_gaussian(
+            return dbs::fitting::fit_gauss(
                 x, y, {max, static_cast<double>(argmax), 100.}
             );
         },
         spectrum.data
     );
 
-    if (fit_result.fit_status != ceres::CONVERGENCE) {
-        throw std::runtime_error("Could not determine peak center");
-    }
+    auto peak_height = result["amp_1"];
+    auto peak_center = result["x0_1"];
+    auto peak_width = result["sig_1"];
 
-    peak_center = fit_result.opt[1].val;
-    dpeak_center = fit_result.opt[1].err;
+    peak_params["center_idx"] = peak_center;
+    peak_params["height"] = peak_height;
+    peak_params["fwhm"] = core::fitting::SimpleFitParam{
+        peak_width.val * FWHM_OVER_SIGMA,
+        peak_width.err * FWHM_OVER_SIGMA,
+    };
 
-    peak_fwhm = fit_result.opt[2].val * FWHM_OVER_SIGMA;
-    dpeak_fwhm = fit_result.opt[2].err * FWHM_OVER_SIGMA;
+    return peak_center.val;
 }
 
 
 void PALSpectrum::fit(
     const model::LifetimeModel& model, size_t fit_start_idx, size_t fit_end_idx
 ) {
-    extract_peak(fit_start_idx, fit_end_idx);
+    auto peak_center = get_peak_center();
 
-    get_peak_center();
-
-    auto x = get_peak_energies();
-    auto& y = peak.value();
+    auto x = get_peak_energies(fit_start_idx, fit_end_idx);
+    auto y = extract_peak(fit_start_idx, fit_end_idx);
 
     fit_result = fitting::fit_lifetime_model(
-        x, y, model, counts, detpair.tcal.from_index(peak_center.value())
+        x, y, model, counts, detpair.tcal.from_index(peak_center)
     );
 }
 
@@ -282,18 +281,8 @@ std::string PALSpectrum::fit_report() {
     text += std::format("{:^100}\n", "Fit report");
     text += thick_hline;
     text += "\n";
-    if (name.has_value()) {
-        text += std::format("Spectrum Name: {}\n", name.value());
-    } else {
-        text += "Spectrum Name: none\n";
-    }
-    text += "\n";
     text += std::format("Statistics: {}\n", counts);
-    if (peak.has_value()) {
-        text += std::format("Number of Data Points: {}\n", peak.value().size());
-    } else {
-        text += "Number of Data Points: NaN\n";
-    }
+    text += std::format("Number of Data Points: {}\n", result.n_dpoints);
     text += "\n";
     text += std::format("Lifetime Components:   {}\n", n_l);
     text += std::format("Resolution Components: {}\n", n_r);

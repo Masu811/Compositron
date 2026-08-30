@@ -2,9 +2,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <variant>
 #include <vector>
 #include <array>
-#include <map>
 
 #include "compositron/core/utils.hpp"
 #include "compositron/core/fitting.hpp"
@@ -21,35 +21,52 @@ enum PeakModel {
 };
 
 
-class Area {
-private:
-    enum AreaType {
-        PEAK,
-        PEAKOFFSET,
-        SPECTRUM
-    };
+class PeakArea {
+public:
+    core::utils::Unit width;
 
-    AreaType type;
+    std::array<double, 2> to_bnds_kev(double eres) const;
+};
 
-    double left_bnd;
-    double right_bnd;
+
+class PeakAreaWithOffset {
+public:
     core::utils::Unit width;
     core::utils::Unit offset;
+
+    std::array<double, 2> to_bnds_kev(double eres) const;
+};
+
+
+class SpectrumArea {
+public:
+    double left_bnd_kev;
+    double right_bnd_kev;
+
+    std::array<double, 2> to_bnds_kev(double eres) const;
+};
+
+
+class Area {
+private:
+    std::variant<PeakArea, PeakAreaWithOffset, SpectrumArea> data;
 
 public:
     Area() = delete;
 
     Area(core::utils::Unit width);
     Area(core::utils::Unit width, core::utils::Unit offset);
-    Area(double left_bnd, double right_bnd);
+    Area(double left_bnd_kev, double right_bnd_kev);
 
-    std::array<double, 2> to_bnds_kev(double eres);
+    std::array<double, 2> to_bnds_kev(double eres) const;
 };
+
 
 enum BinIntegrationScheme {
     CONST,
     LINEAR,
 };
+
 
 struct LineshapeParam {
     double val;
@@ -58,6 +75,7 @@ struct LineshapeParam {
     std::vector<Area> denom;
     bool in_corrected_peak;
 };
+
 
 struct LineshapeParamDefinition {
     std::string name;
@@ -70,7 +88,7 @@ struct LineshapeParamDefinition {
 const std::array<LineshapeParamDefinition, 4> STD_LINESHAPE_PARAMS{{
     {
         "S",
-        {Area(core::utils::Unit(1., core::utils::KEV))},
+        {Area(core::utils::Unit(2., core::utils::KEV))},
         {Area(core::utils::Unit(20., core::utils::KEV))},
         true,
     },
@@ -106,13 +124,11 @@ public:
     core::utils::Spectrum spectrum;
     core::utils::EnergyDetector detector;
     uint64_t counts;
-    double dcounts;
     std::optional<Eigen::VectorXd> peak;
-    std::optional<std::array<size_t, 2>> peak_bnds;
+    std::optional<std::array<size_t, 2>> peak_bnd_idcs;
     std::optional<double> peak_counts;
-    std::optional<double> dpeak_counts;
-    std::map<std::string, core::fitting::SimpleFitParam> peak_params;
-    std::map<std::string, LineshapeParam> lineshape_params;
+    std::unordered_map<std::string, core::fitting::SimpleFitParam> peak_params;
+    std::unordered_map<std::string, LineshapeParam> lineshape_params;
 
     DBSpectrum() = delete;
 
@@ -133,12 +149,12 @@ public:
 private:
     Eigen::VectorXd get_peak_energies();
 
-    bool fit_peak(PeakModel peak_model);
+    void fit_peak(PeakModel peak_model);
 
     void subtract_bg(PeakModel peak_model);
 
 public:
-    void extract_peak(double peak_width, bool bg_corr, PeakModel peak_model);
+    void extract_peak(double peak_width, PeakModel peak_model);
 
     void correct_ecal(core::utils::EcalCorrectionOrder order);
 

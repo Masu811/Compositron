@@ -24,7 +24,10 @@ pub enum AntiAliasingError {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Vertex(pub f64, pub f64);
+pub struct Vertex {
+    pub x: f64,
+    pub y: f64,
+}
 
 pub trait ConvexToVerticesCounterClockwise {
     fn to_vertices(&self) -> Vec<Vertex>;
@@ -39,16 +42,16 @@ impl ConvexToVerticesCounterClockwise for Polygon {
     fn to_vertices(&self) -> Vec<Vertex> {
         let x_0 = self.vertices
             .iter()
-            .map(|v| v.0)
+            .map(|v| v.x)
             .sum::<f64>() / self.vertices.len() as f64;
         let y_0 = self.vertices
             .iter()
-            .map(|v| v.1)
+            .map(|v| v.y)
             .sum::<f64>() / self.vertices.len() as f64;
 
         let angles = self.vertices
             .iter()
-            .map(|v| (v.1 - y_0).atan2(v.0 - x_0))
+            .map(|v| (v.y - y_0).atan2(v.x - x_0))
             .collect::<Vec<f64>>();
 
         let mut pairs = self.vertices
@@ -73,10 +76,10 @@ pub struct Rectangle {
 impl ConvexToVerticesCounterClockwise for Rectangle {
     fn to_vertices(&self) -> Vec<Vertex> {
         vec![
-            Vertex(self.j_min, self.i_min),
-            Vertex(self.j_min, self.i_max),
-            Vertex(self.j_max, self.i_max),
-            Vertex(self.j_max, self.i_min),
+            Vertex { x: self.j_min, y: self.i_min },
+            Vertex { x: self.j_min, y: self.i_max },
+            Vertex { x: self.j_max, y: self.i_max },
+            Vertex { x: self.j_max, y: self.i_min },
         ]
     }
 }
@@ -101,14 +104,14 @@ impl ConvexToVerticesCounterClockwise for Parallelogram {
 
         let x0 = Vector2::new(self.center_j, self.center_i);
 
-        let v1 = x0 + (w + h);
-        let v2 = x0 + (w - h);
-        let v3 = x0 + (-w - h);
-        let v4 = x0 + (-w + h);
+        let v1 = x0 + (w - h);
+        let v2 = x0 + (w + h);
+        let v3 = x0 + (-w + h);
+        let v4 = x0 + (-w - h);
 
         vec![
-            Vertex(v1.x, v1.y), Vertex(v2.x, v2.y),
-            Vertex(v3.x, v3.y), Vertex(v4.x, v4.y),
+            Vertex { x: v1.x, y: v1.y }, Vertex { x: v2.x, y: v2.y },
+            Vertex { x: v3.x, y: v3.y }, Vertex { x: v4.x, y: v4.y },
         ]
     }
 }
@@ -133,12 +136,12 @@ impl ConvexToVerticesCounterClockwise for Ellipse {
                 let t = std::f64::consts::TAU * k as f64 / n_vertices as f64;
                 let (s, c) = t.sin_cos();
 
-                Vertex(
-                    self.center_j + self.radius_i * c * sin_phi
+                Vertex {
+                    x: self.center_j + self.radius_i * c * sin_phi
                         + self.radius_j * s * cos_phi,
-                    self.center_i + self.radius_i * c * cos_phi
+                    y: self.center_i + self.radius_i * c * cos_phi
                         - self.radius_j * s * sin_phi,
-                )
+                }
             })
             .collect()
     }
@@ -148,10 +151,10 @@ pub fn get_bounding_box(
     vertices: &[Vertex]
 ) -> Result<(usize, usize, usize, usize), AntiAliasingError> {
     let (Some(left_col), Some(right_col), Some(lower_row), Some(upper_row)) = (
-        vertices.iter().map(|v| v.0).min_by(|x1, x2| x1.total_cmp(x2)),
-        vertices.iter().map(|v| v.0).max_by(|x1, x2| x1.total_cmp(x2)),
-        vertices.iter().map(|v| v.1).max_by(|y1, y2| y1.total_cmp(y2)),
-        vertices.iter().map(|v| v.1).min_by(|y1, y2| y1.total_cmp(y2)),
+        vertices.iter().map(|v| v.x).min_by(|x1, x2| x1.total_cmp(x2)),
+        vertices.iter().map(|v| v.x).max_by(|x1, x2| x1.total_cmp(x2)),
+        vertices.iter().map(|v| v.y).max_by(|y1, y2| y1.total_cmp(y2)),
+        vertices.iter().map(|v| v.y).min_by(|y1, y2| y1.total_cmp(y2)),
     ) else {
         return Err(AntiAliasingError::InvalidVertices);
     };
@@ -185,20 +188,20 @@ pub fn agg_aa(
     // to agg's coords (pixel boundaries at integer coords)
     let vertices = vertices
         .iter()
-        .map(|v| Vertex(v.0 + 0.5, v.1 + 0.5))
+        .map(|v| Vertex { x: v.x + 0.5, y: v.y + 0.5 })
         .collect::<Vec<Vertex>>();
 
     if vertices.iter().any(|&v| {
-        v.0 < 0. || v.0 > ncols as f64 || v.1 < 0. || v.1 > nrows as f64
+        v.x < 0. || v.x > ncols as f64 || v.y < 0. || v.y > nrows as f64
     }) {
         return Err(AntiAliasingError::OutOfBounds);
     }
 
     // Coords are transposed because agg is row-major
     let mut path = PathStorage::new();
-    path.move_to(vertices[0].1, vertices[0].0);
+    path.move_to(vertices[0].y, vertices[0].x);
     for vertex in vertices.iter().skip(1) {
-        path.line_to(vertex.1, vertex.0);
+        path.line_to(vertex.y, vertex.x);
     }
     path.close_polygon(0);
 
@@ -228,23 +231,23 @@ pub fn agg_aa(
 fn compute_intersection(
     a: &Vertex, b: &Vertex, v1: &Vertex, v2: &Vertex
 ) -> Vertex {
-    let m1 = (a.1 - b.1) / (a.0 - b.0);
-    let t1 = a.1 - m1 * a.0;
+    let m1 = (a.y - b.y) / (a.x - b.x);
+    let t1 = a.y - m1 * a.x;
 
-    let m2 = (v1.1 - v2.1) / (v1.0 - v2.0);
-    let t2 = v1.1 - m2 * v1.0;
+    let m2 = (v1.y - v2.y) / (v1.x - v2.x);
+    let t2 = v1.y - m2 * v1.x;
 
     let x0 = (t2 - t1) / (m1 - m2);
     let y0 = m1 * x0 + t1;
 
-    Vertex(x0, y0)
+    Vertex { x: x0, y: y0 }
 }
 
 fn inside(v: &Vertex, v1: &Vertex, v2: &Vertex) -> bool {
-    let a = Vector2::from_vec(vec![v1.0 - v2.0, v1.1 - v2.1]);
-    let b = Vector2::from_vec(vec![v1.0 - v.0, v1.1 - v.1]);
+    let a = Vector2::from_vec(vec![v1.x - v2.x, v1.y - v2.y]);
+    let b = Vector2::from_vec(vec![v1.x - v.x, v1.y - v.y]);
 
-    a.x * b.y - a.y * b.x < 0.
+    a.x * b.y - a.y * b.x >= 0.
 }
 
 /// Intersection by Sutherland-Hodgman clipping
@@ -270,9 +273,9 @@ pub fn intersect_convex_polygons(
         let input = output;
         output = Vec::new();
 
-        for i in 0..input.len() {
-            let curr = input[i];
-            let prev = input[(i + input.len() - 1) % input.len()];
+        for j in 0..input.len() {
+            let curr = input[j];
+            let prev = input[(j + input.len() - 1) % input.len()];
 
             let curr_inside = inside(&curr, &edge_start, &edge_end);
             let prev_inside = inside(&prev, &edge_start, &edge_end);

@@ -42,25 +42,16 @@ impl Measurement {
         }
     }
 
-    pub fn import(
-        &mut self, filepath: &str, format: DataFormat
-    ) -> Result<(), ImportError> {
-        let m = match format {
+    pub fn from_file(
+        filepath: &str, format: DataFormat
+    ) -> Result<Self, ImportError> {
+        Ok(match format {
             DataFormat::SlopeN42 => import_n42(filepath)?,
             DataFormat::MePSDat => import_meps_dat(filepath)?,
             DataFormat::Custom { importer } => importer(filepath).map_err(
                 |err| ImportError::CustomImporterError { source: err }
             )?
-        };
-
-        self.filename = Some(filepath.into());
-        self.name = self.filename.clone();
-        self.dbs = m.dbs;
-        self.cdbs = m.cdbs;
-        self.pals = m.pals;
-        self.metadata = m.metadata;
-
-        Ok(())
+        })
     }
 
     pub fn shape(&self) -> Shape {

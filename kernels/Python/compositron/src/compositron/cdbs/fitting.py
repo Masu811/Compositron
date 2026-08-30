@@ -35,7 +35,33 @@ def fit_gauss2d(
 ) -> dict[str, SimpleFitParam]:
     model = Model(gauss2d, independent_vars=["x", "y"])
 
-    w = 1. / np.sqrt(np.maximum(z, 1.))
+    def jac(params, _, weights, x, y):
+        amp = params["amp"]
+        x0 = params["x0"]
+        y0 = params["y0"]
+        sig_x = params["sig_x"]
+        sig_y = params["sig_y"]
+        phi = params["phi"]
+
+        j = np.empty((6, x.size), dtype=np.float64)
+
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+        dx = x - x0
+        dy = y - y0
+        u = dx * cos_phi - dy * sin_phi
+        v = dx * sin_phi + dy * cos_phi
+
+        f = gauss2d(x, y, amp, x0, y0, sig_x, sig_y, phi)
+
+        j[0, :] = np.ravel(f / amp)
+        j[1, :] = np.ravel(f * (u * cos_phi / sig_x**2 + v * sin_phi / sig_y**2))
+        j[2, :] = np.ravel(f * (v * cos_phi / sig_y**2 - u * sin_phi / sig_x**2))
+        j[3, :] = np.ravel(f * u**2 / sig_x**3)
+        j[4, :] = np.ravel(f * v**2 / sig_y**3)
+        j[5, :] = np.ravel(f * u * v * (1 / sig_x**2 - 1 / sig_y**2))
+
+        return -j
 
     params = model.make_params(
         amp = init[0],
@@ -47,8 +73,7 @@ def fit_gauss2d(
     )
 
     result = model.fit(
-        z, x=x, y=y, weights=w, params=params,
-        #fit_kws={"Dfun": jac, "col_deriv": True}
+        z, x=x, y=y, params=params, fit_kws={"Dfun": jac, "col_deriv": True}
     )
 
     params = result.params

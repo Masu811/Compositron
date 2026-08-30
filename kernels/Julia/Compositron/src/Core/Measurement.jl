@@ -4,11 +4,15 @@ using ..DBS: DBSpectrum
 using ..CDBS: CDBSpectrum
 using ..PALS: PALSpectrum
 
+export MeasurementShape, Measurement, shape
+
+
 struct MeasurementShape
     dbs::Int
     cdbs::Int
     pals::Int
 end
+
 
 mutable struct Measurement
     filename::Union{String, Nothing}
@@ -29,6 +33,7 @@ mutable struct Measurement
         )
     end
 end
+
 
 function shape(m::Measurement)
     MeasurementShape(length(m.dbs), length(m.cdbs), length(m.pals))

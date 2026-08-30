@@ -1,57 +1,74 @@
-using ..Utils: EnergyDetector, min_spectrum, SimpleFitParam,
-    EcalCorrectionOrder, first_order, zeroth_order, no_corr, Unit, KeV, to_kev,
-    to_index_float, to_index_rounded, from_index
-using ..Constants: M_E_KEV
+using ..Utils
+using ..Constants
 
-@enum PeakModel gauss_peak erf_linear_1_gauss_peak erf_linear_2_gauss_peak erf_linear_3_gauss_peak
+export PeakModel, PeakModel_Gauss, PeakModel_ErfLinear1Gauss,
+    PeakModel_ErfLinear2Gauss, PeakModel_ErfLinear3Gauss,
+    BinIntegrationScheme, BinIntScheme_Const, BinIntScheme_Linear,
+    Area, PeakArea, PeakAreaWithOffset, SpectrumArea, to_bnds_kev,
+    LineshapeParam, LineshapeParamDefinition, STD_LINESHAPE_PARAMS, DBSpectrum,
+    default_analyze!, extract_peak!, correct_ecal!, integrate,
+    calc_lineshape_param!
 
-@enum BinIntegrationScheme const_int_scheme linear_int_scheme
+
+@enum PeakModel begin
+    PeakModel_Gauss
+    PeakModel_ErfLinear1Gauss
+    PeakModel_ErfLinear2Gauss
+    PeakModel_ErfLinear3Gauss
+end
+
+
+@enum BinIntegrationScheme begin
+    BinIntScheme_Const
+    BinIntScheme_Linear
+end
+
 
 abstract type Area end
+
 
 struct PeakArea <: Area
     width::Unit
 end
+
 
 struct PeakAreaWithOffset <: Area
     width::Unit
     offset::Unit
 end
 
+
 struct SpectrumArea <: Area
-    left_bnd::Float64
-    right_bnd::Float64
+    left_bnd_kev::Float64
+    right_bnd_kev::Float64
 end
+
 
 function to_bnds_kev(
     area::PeakArea, eres::Union{Nothing, Float64}
 )::Union{Nothing, Tuple{Float64, Float64}}
     width_kev = to_kev(area.width, eres)
 
-    isnothing(width_kev) && return nothing
-
     (M_E_KEV - width_kev / 2, M_E_KEV + width_kev / 2)
 end
+
 
 function to_bnds_kev(
     area::PeakAreaWithOffset, eres::Union{Nothing, Float64}
 )::Union{Nothing, Tuple{Float64, Float64}}
     width_kev = to_kev(area.width, eres)
-
-    isnothing(width_kev) && return nothing
-
     offset_kev = to_kev(area.offset, eres)
-
-    isnothing(offset_kev) && return nothing
 
     (M_E_KEV - width_kev / 2 + offset_kev, M_E_KEV + width_kev / 2 + offset_kev)
 end
 
+
 function to_bnds_kev(
     area::SpectrumArea, eres::Union{Nothing, Float64}
 )::Union{Nothing, Tuple{Float64, Float64}}
-    (area.left_bnd, area.right_bnd)
+    (area.left_bnd_kev, area.right_bnd_kev)
 end
+
 
 struct LineshapeParam
     val::Float64
@@ -61,6 +78,7 @@ struct LineshapeParam
     in_corrected_peak::Bool
 end
 
+
 struct LineshapeParamDefinition
     name::String
     num::Vector{Area}
@@ -68,10 +86,11 @@ struct LineshapeParamDefinition
     in_corrected_peak::Bool
 end
 
+
 const STD_LINESHAPE_PARAMS::Vector{LineshapeParamDefinition} = [
     LineshapeParamDefinition(
         "S",
-        [PeakArea(KeV(1))],
+        [PeakArea(KeV(2))],
         [PeakArea(KeV(20))],
         true,
     ),
@@ -98,30 +117,24 @@ const STD_LINESHAPE_PARAMS::Vector{LineshapeParamDefinition} = [
     ),
 ]
 
+
 mutable struct DBSpectrum
     spectrum::Vector{<:Unsigned}
     detector::EnergyDetector
     counts::UInt64
-    dcounts::Float64
     peak::Union{Nothing, Vector{Float64}}
-    peak_bnds::Union{Nothing, Tuple{Int, Int}}
+    peak_bnd_idcs::Union{Nothing, Tuple{Int, Int}}
     peak_counts::Union{Nothing, Float64}
-    dpeak_counts::Union{Nothing, Float64}
     peak_params::Dict{String, SimpleFitParam}
     lineshape_params::Dict{String, LineshapeParam}
 
     function DBSpectrum(
         spectrum::AbstractVector{<:Integer}, detector::EnergyDetector
     )
-        counts = sum(spectrum)
-        dcounts = sqrt(counts)
-
         new(
             min_spectrum(spectrum),
             detector,
-            counts,
-            dcounts,
-            nothing,
+            sum(spectrum),
             nothing,
             nothing,
             nothing,
@@ -131,51 +144,51 @@ mutable struct DBSpectrum
     end
 end
 
-function default_analyze!(d::DBSpectrum)
-    correct_ecal!(d, first_order)
-
-    extract_peak!(d, 30, erf_linear_1_gauss_peak)
-
-    for param in STD_LINESHAPE_PARAMS
-        calc_lineshape_param!(d, param, const_int_scheme)
-    end
-
-    d.peak = nothing
-    d.peak_bnds = nothing
-end
 
 function _get_peak_energies(d::DBSpectrum)::Vector{Float64}
     ecal = something(d.detector.corrected_ecal, d.detector.ecal)
-    bnds = something(d.peak_bnds)
+    bnds = something(d.peak_bnd_idcs)
 
     bnds[1]:bnds[2] .|> i -> from_index(ecal, i)
 end
+
 
 function _fit_peak!(d::DBSpectrum, peak_model::PeakModel)
     x = _get_peak_energies(d)
     y = something(d.peak)
 
-    if peak_model == gauss_peak
-        d.peak_params = fit_gaussian(x, y, [maximum(y), 511, 1])
-    elseif peak_model == erf_linear_1_gauss_peak
+    min_val, max_val = extrema(y)
+
+    if peak_model == PeakModel_Gauss
+        d.peak_params = fit_gauss(x, y, [max_val, 511, 1])
+        return
+    end
+
+    erf_amp = 0.5 * (y[1] - y[end])
+
+    if peak_model == PeakModel_ErfLinear1Gauss
         d.peak_params = fit_erf_linear_1_gauss(
-            x, y, [maximum(y), 511, 1, -10, 0, 0]
+            x, y, [max_val, 511, 1, erf_amp, 0, min_val]
         )
-    elseif peak_model == erf_linear_2_gauss_peak
-        m = maximum(y)
+    elseif peak_model == PeakModel_ErfLinear2Gauss
         d.peak_params = fit_erf_linear_2_gauss(
-            x, y, [m / 2, 511, 1, m / 2, 511, 1.5, -10, 0, 0]
+            x, y, [
+                max_val / 2, 511, 1, max_val / 2, 511, 1.5, erf_amp, 0, min_val
+            ]
         )
     else
-        m = maximum(y)
         d.peak_params = fit_erf_linear_3_gauss(
-            x, y, [m / 3, 511, 1, m / 3, 511, 1.5, m / 3, 511, 2.0, -10, 0, 0]
+            x, y, [
+                max_val / 3, 511, 1, max_val / 3, 511, 1.5, max_val / 3,
+                511, 2.0, erf_amp, 0, min_val
+            ]
         )
     end
 end
 
+
 function _subtract_bg!(d::DBSpectrum, peak_model::PeakModel)
-    peak_model == gauss_peak && return
+    peak_model == PeakModel_Gauss && return
 
     _fit_peak!(d, peak_model)
 
@@ -190,8 +203,9 @@ function _subtract_bg!(d::DBSpectrum, peak_model::PeakModel)
         d.peak_params["const"].val,
     )
 
-    d.peak .-= corr
+    d.peak = max.(d.peak - corr, 0)
 end
+
 
 function extract_peak!(d::DBSpectrum, peak_width::Real, peak_model::PeakModel)
     ecal = something(d.detector.corrected_ecal, d.detector.ecal)
@@ -199,34 +213,32 @@ function extract_peak!(d::DBSpectrum, peak_width::Real, peak_model::PeakModel)
     left_peak_idx = to_index_rounded(ecal, M_E_KEV - peak_width / 2)
     right_peak_idx = to_index_rounded(ecal, M_E_KEV + peak_width / 2)
 
-    if right_peak_idx >= length(d.spectrum)
-        throw(ErrorException(
-            "Attempting to integrate an area larger than the spectrum or "
-            * "extracted peak"
-        ))
+    if right_peak_idx >= length(d.spectrum) || left_peak_idx < 1
+        throw(ErrorException("Attempting to extract peak larger than spectrum"))
     end
 
-    d.peak_bnds = (left_peak_idx, right_peak_idx)
-
     d.peak = Float64.(d.spectrum[left_peak_idx:right_peak_idx])
+
+    d.peak_bnd_idcs = (left_peak_idx, right_peak_idx)
 
     _subtract_bg!(d, peak_model)
 end
 
+
 function correct_ecal!(d::DBSpectrum, order::EcalCorrectionOrder)
-    order == no_corr && return
+    order == EcalCorrOrder_None && return
 
     if isnothing(d.peak)
-        extract_peak!(d, 20, gauss_peak)
+        extract_peak!(d, 20, PeakModel_Gauss)
     end
 
-    _fit_peak!(d, gauss_peak)
+    _fit_peak!(d, PeakModel_Gauss)
 
     c = d.peak_params["x0_1"].val
 
     ecal = d.detector.ecal
 
-    if order == zeroth_order
+    if order == EcalCorrOrder_Zeroth
         ecal.offset += M_E_KEV - c
     else
         ecal.scale *= (M_E_KEV - ecal.offset) / (c - ecal.offset)
@@ -234,6 +246,7 @@ function correct_ecal!(d::DBSpectrum, order::EcalCorrectionOrder)
 
     d.detector.corrected_ecal = ecal
 end
+
 
 function _integrate_const(
     spectrum::Vector, lower_ch_bnd::Float64, upper_ch_bnd::Float64
@@ -259,6 +272,7 @@ function _integrate_const(
 
     counts
 end
+
 
 function _integrate_linear(
     spectrum::Vector, lower_ch_bnd::Float64, upper_ch_bnd::Float64
@@ -299,6 +313,7 @@ function _integrate_linear(
     counts
 end
 
+
 function _integrate_generic(
     spectrum::Vector,
     lower_ch_bnd::Float64,
@@ -322,12 +337,13 @@ function _integrate_generic(
         ))
     end
 
-    if bin_integration_scheme == const_int_scheme
+    if bin_integration_scheme == BinIntScheme_Const
         return _integrate_const(spectrum, lower_ch_bnd, upper_ch_bnd)
     else
         return _integrate_linear(spectrum, lower_ch_bnd, upper_ch_bnd)
     end
 end
+
 
 function integrate(
     d::DBSpectrum,
@@ -337,24 +353,11 @@ function integrate(
 )::Float64
     bnds = to_bnds_kev(area, d.detector.eres)
 
-    if isnothing(bnds)
-        throw(ErrorException(
-            "Could not convert units of eres to keV due to missing eres"
-        ))
-    end
-
     lower_bnd, upper_bnd = bnds
 
     if lower_bnd >= upper_bnd
         throw(ErrorException(
             "Input parameter violates constaint lower bound < upper bound"
-        ))
-    end
-
-    if in_corrected_peak && isnothing(d.peak)
-        throw(ErrorException(
-            "Attempting analysis on background subtracted peak, but no "
-            * "subtraction has been performed yet"
         ))
     end
 
@@ -364,10 +367,19 @@ function integrate(
     upper_ch_bnd = to_index_float(ecal, upper_bnd)
 
     if in_corrected_peak
-        lower_peak_bnd, _ = something(d.peak_bnds)
-        lower_ch_bnd -= lower_peak_bnd
-        upper_ch_bnd -= lower_peak_bnd
+        if isnothing(d.peak)
+            throw(ErrorException(
+                "Attempting analysis on background subtracted peak, but no "
+                * "subtraction has been performed yet"
+            ))
+        end
+
+        lower_peak_bnd, _ = something(d.peak_bnd_idcs)
         peak = something(d.peak)
+
+        lower_ch_bnd -= lower_peak_bnd - 1
+        upper_ch_bnd -= lower_peak_bnd - 1
+
         return _integrate_generic(
             peak, lower_ch_bnd, upper_ch_bnd, bin_integration_scheme
         )
@@ -378,16 +390,11 @@ function integrate(
     end
 end
 
+
 function _get_area_bnds(
     d::DBSpectrum, areas::Vector{Area}
 )::Vector{Tuple{Float64, Float64}}
     bnds = to_bnds_kev.(areas, d.detector.eres)
-
-    if any(isnothing.(bnds))
-        throw(ErrorException(
-            "Could not convert units of eres to keV due to missing eres"
-        ))
-    end
 
     for i in 1:length(areas) - 1
         for j in i+1:length(areas)
@@ -401,6 +408,7 @@ function _get_area_bnds(
 
     bnds
 end
+
 
 function calc_lineshape_param!(
     d::DBSpectrum,
@@ -422,13 +430,13 @@ function calc_lineshape_param!(
 
     for num_bnd in num_bnds
         for denom_bnd in denom_bnds
-            left_bnd = max(num_bnd[1], denom_bnd[1])
-            right_bnd = min(num_bnd[2], denom_bnd[2])
+            left_bnd_kev = max(num_bnd[1], denom_bnd[1])
+            right_bnd_kev = min(num_bnd[2], denom_bnd[2])
 
-            if left_bnd < right_bnd
+            if left_bnd_kev < right_bnd_kev
                 common += integrate(
                     d,
-                    SpectrumArea(left_bnd, right_bnd),
+                    SpectrumArea(left_bnd_kev, right_bnd_kev),
                     definition.in_corrected_peak,
                     bin_integration_scheme,
                 )
@@ -450,4 +458,18 @@ function calc_lineshape_param!(
     d.lineshape_params[definition.name] = ls_param
 
     return ls_param
+end
+
+
+function default_analyze!(d::DBSpectrum)
+    correct_ecal!(d, EcalCorrOrder_First)
+
+    extract_peak!(d, 30, PeakModel_ErfLinear2Gauss)
+
+    for param in STD_LINESHAPE_PARAMS
+        calc_lineshape_param!(d, param, BinIntScheme_Const)
+    end
+
+    d.peak = nothing
+    d.peak_bnd_idcs = nothing
 end

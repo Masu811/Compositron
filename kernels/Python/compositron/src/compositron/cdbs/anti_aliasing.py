@@ -21,7 +21,6 @@ agg.agg_aa.argtypes = [
 ]
 
 
-
 @dataclass
 class Vertex:
     x: float
@@ -78,10 +77,10 @@ class Parallelogram:
 
         x0 = np.array([self.center_j, self.center_i])
 
-        v1 = x0 + (w + h)
-        v2 = x0 + (w - h)
-        v3 = x0 + (-w - h)
-        v4 = x0 + (-w + h)
+        v1 = x0 + (w - h)
+        v2 = x0 + (w + h)
+        v3 = x0 + (-w + h)
+        v4 = x0 + (-w - h)
 
         return [
             Vertex(v1[0], v1[1]), Vertex(v2[0], v2[1]),
@@ -134,9 +133,12 @@ def get_bounding_box(vertices: list[Vertex]) -> tuple[int, int, int, int]:
     return (left_col, right_col, lower_row, upper_row)
 
 
-def agg_aa(
-    nrows: int, ncols: int, polygon: ConvexToVerticesCounterClockwise
-) -> npt.NDArray[np.uint8]:
+def agg_aa_with_buf(
+    buf: npt.NDArray[np.uint8],
+    nrows: int,
+    ncols: int,
+    polygon: ConvexToVerticesCounterClockwise,
+) -> None:
     if nrows < 3 or ncols < 3:
         raise ValueError("Input data is too small in size")
 
@@ -144,8 +146,6 @@ def agg_aa(
 
     if len(vertices) < 3:
         raise ValueError("Insufficient number of vertices")
-
-    weights = np.zeros((nrows, ncols), dtype=np.uint8)
 
     # Transform our coords (pixel centers at integer coords)
     # to agg's coords (pixel boundaries at integer coords)
@@ -157,7 +157,15 @@ def agg_aa(
     vx = np.asarray([v.x for v in vertices])
     vy = np.asarray([v.y for v in vertices])
 
-    agg.agg_aa(weights, nrows, ncols, vx, vy, len(vertices))
+    agg.agg_aa(buf, nrows, ncols, vx, vy, len(vertices))
+
+
+def agg_aa(
+    nrows: int, ncols: int, polygon: ConvexToVerticesCounterClockwise
+) -> npt.NDArray[np.uint8]:
+    weights = np.zeros((nrows, ncols), dtype=np.uint8)
+
+    agg_aa_with_buf(weights, nrows, ncols, polygon)
 
     return weights
 
@@ -179,7 +187,7 @@ def inside(v: Vertex, v1: Vertex, v2: Vertex) -> bool:
     a = np.array([v1.x - v2.x, v1.y - v2.y])
     b = np.array([v1.x - v.x, v1.y - v.y])
 
-    return a[0] * b[1] - a[1] * b[0] < 0
+    return a[0] * b[1] - a[1] * b[0] >= 0
 
 
 def intersect_convex_polygons(
@@ -203,9 +211,9 @@ def intersect_convex_polygons(
         input = output
         output = []
 
-        for i in range(len(input)):
-            curr = input[i]
-            prev = input[(i + len(input) - 1) % len(input)]
+        for j in range(len(input)):
+            curr = input[j]
+            prev = input[(j - 1) % len(input)]
 
             curr_inside = inside(curr, edge_start, edge_end)
             prev_inside = inside(prev, edge_start, edge_end)

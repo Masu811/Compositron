@@ -1,8 +1,9 @@
 using DelimitedFiles
 
-using Compositron.Utils: first_order, KeV
-using Compositron.Core: Measurement
-using Compositron.CDBS: correct_ecal!, LineshapeParamDefinition, DiagonalArea, calc_lineshape_param!, project_diagonal, LinearProjectionBins
+using Compositron.Utils
+using Compositron.Core
+using Compositron.CDBS
+
 
 m = Measurement(
     "../../../../testdata/depth-profile_Copper_0000.n42"
@@ -10,22 +11,20 @@ m = Measurement(
 
 c = m.cdbs["OAA x OAB"]
 
-correct_ecal!(c, first_order)
+correct_ecal!(c, EcalCorrOrder_First)
 
 # S parameter calculation
 
 ls_param = LineshapeParamDefinition(
     "S",
-    [DiagonalArea(KeV(2), KeV(1), KeV(0), KeV(0))],
-    [DiagonalArea(KeV(Inf), KeV(1), KeV(0), KeV(0))],
+    [DiagonalArea(KeV(2), KeV(1))],
+    [DiagonalArea(KeV(10), KeV(1))],
     false
 )
 
-println("S calculation duration (cold-start): ")
+calc_lineshape_param!(c, ls_param)
 
-@time calc_lineshape_param!(c, ls_param)
-
-println("S calculation duration (warmed-up): ")
+println("S calculation duration")
 
 @time calc_lineshape_param!(c, ls_param)
 
@@ -35,11 +34,9 @@ println("Calculated S parameter: $(s.val) +/- $(s.err)")
 
 # Projection onto diagonal
 
-println("Projection duration (cold-start): ")
+project_diagonal(c, LinearProjectionBins(KeV(0.1)), KeV(2), KeV(10), false)
 
-@time project_diagonal(c, LinearProjectionBins(KeV(0.1)), KeV(2), KeV(10), false)
-
-println("Projection duration (warmed-up): ")
+println("Projection duration: ")
 
 p = @time project_diagonal(c, LinearProjectionBins(KeV(0.1)), KeV(2), KeV(10), false)
 

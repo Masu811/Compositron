@@ -62,10 +62,10 @@ std::vector<Vertex> Parallelogram::to_vertices() {
 
     Eigen::Vector2d x0(center_j, center_i);
 
-    auto v1 = x0 + (w + h);
-    auto v2 = x0 + (w - h);
-    auto v3 = x0 + (-w - h);
-    auto v4 = x0 + (-w + h);
+    auto v1 = x0 + (w - h);
+    auto v2 = x0 + (w + h);
+    auto v3 = x0 + (-w + h);
+    auto v4 = x0 + (-w - h);
 
     return {{v1[0], v1[1]}, {v2[0], v2[1]}, {v3[0], v3[1]}, {v4[0], v4[1]}};
 }
@@ -137,7 +137,7 @@ bool inside(Vertex& v, Vertex& v1, Vertex& v2) {
     Eigen::Vector2d a(v1[0] - v2[0], v1[1] - v2[1]);
     Eigen::Vector2d b(v1[0] - v[0], v1[1] - v[1]);
 
-    return a[0] * b[1] - a[1] * b[0] < 0;
+    return a[0] * b[1] - a[1] * b[0] >= 0;
 }
 
 

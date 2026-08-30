@@ -29,13 +29,14 @@ struct GaussResidual {
 
         T u = (x - x0) / sig;
 
-        residual[0] = w * (y - amp * ceres::exp(-0.5 * u * u));
+        // not weighted on purpose!
+        residual[0] = y - amp * ceres::exp(-0.5 * u * u);
 
         return true;
     }
 };
 
-core::fitting::FitResult fit_gaussian(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_gauss(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const std::array<double, 3>& init
@@ -67,7 +68,7 @@ struct ErfLinear1GaussResidual {
 
         T gauss_1 = amp_gauss_1 * ceres::exp(-0.5 * u_1 * u_1);
 
-        T erf = amp_erf * ceres::erf(u_1);
+        T erf = amp_erf * ceres::erfc(u_1);
 
         residual[0] = w * (y - (gauss_1 + erf + lin * x + off));
 
@@ -76,7 +77,7 @@ struct ErfLinear1GaussResidual {
 };
 
 
-core::fitting::FitResult fit_erf_linear_1_gauss(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_erf_linear_1_gauss(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const std::array<double, 6>& init
@@ -108,7 +109,7 @@ struct ErfLinear2GaussResidual {
         T gauss_1 = amp_gauss_1 * ceres::exp(-0.5 * u_1 * u_1);
         T gauss_2 = amp_gauss_2 * ceres::exp(-0.5 * u_2 * u_2);
 
-        T erf = amp_erf * ceres::erf(u_1);
+        T erf = amp_erf * ceres::erfc(u_1);
 
         residual[0] = w * (y - (gauss_1 + gauss_2 + erf + lin * x + off));
 
@@ -117,7 +118,7 @@ struct ErfLinear2GaussResidual {
 };
 
 
-core::fitting::FitResult fit_erf_linear_2_gauss(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_erf_linear_2_gauss(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const std::array<double, 9>& init
@@ -154,7 +155,7 @@ struct ErfLinear3GaussResidual {
         T gauss_2 = amp_gauss_2 * ceres::exp(-0.5 * u_2 * u_2);
         T gauss_3 = amp_gauss_3 * ceres::exp(-0.5 * u_3 * u_3);
 
-        T erf = amp_erf * ceres::erf(u_1);
+        T erf = amp_erf * ceres::erfc(u_1);
 
         residual[0] = w * (y - (
             gauss_1 + gauss_2 + gauss_3 + erf + lin * x + off
@@ -165,7 +166,7 @@ struct ErfLinear3GaussResidual {
 };
 
 
-core::fitting::FitResult fit_erf_linear_3_gauss(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_erf_linear_3_gauss(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const std::array<double, 12>& init

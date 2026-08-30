@@ -158,7 +158,6 @@ struct Problem {
     x: DVector<f64>,
     y: DVector<f64>,
     z: DVector<f64>,
-    w: DVector<f64>,
     p: DVector<f64>,
 }
 
@@ -187,7 +186,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for Problem {
             self.p[5],
         );
 
-        let r = (&self.z - f).component_mul(&self.w);
+        let r = &self.z - f;
 
         Some(r)
     }
@@ -224,7 +223,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for Problem {
                 self.p[3],
                 self.p[4],
                 self.p[5],
-            ).component_mul(&self.w)));
+            )));
         }
 
         Some(j)
@@ -235,15 +234,11 @@ pub fn fit_gauss2d(
     x: &DVector<f64>, y: &DVector<f64>, z: &DMatrix<f64>, init: &[f64]
 ) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
     let z = z.to_owned().reshape_generic(Dyn(x.len() * y.len()), Const::<1>);
-    let w = DVector::from_iterator(
-        z.len(), z.iter().map(|z_i| 1. / z_i.max(1.).sqrt())
-    );
 
     let problem = Problem {
         x: x.to_owned(),
         y: y.to_owned(),
         z: z,
-        w: w,
         p: DVector::from_column_slice(init),
     };
 

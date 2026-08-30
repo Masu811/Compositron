@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use nalgebra::DVector;
-use statrs::function::erf::erf;
+use statrs::function::erf::erfc;
 use varpro::prelude::*;
 use varpro::problem::*;
 use varpro::solvers::levmar::LevMarSolver;
@@ -36,7 +36,7 @@ fn gaussian_dsig(
     })
 }
 
-pub fn fit_gaussian(
+pub fn fit_gauss(
     x: &[f64], y: &[f64], init: Vec<f64>,
 ) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
     let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
@@ -81,7 +81,7 @@ fn erf_basis(
 ) -> DVector<f64> {
     x.map(|x| {
         let u = (x - x0) / sig;
-        erf(u)
+        erfc(u)
     })
 }
 
@@ -299,11 +299,11 @@ pub fn fit_erf_linear_3_gauss(
     Ok(params)
 }
 
-pub fn background(
+pub fn erf_linear_background(
     x: &[f64], amp: f64, x0: f64, sig: f64, lin: f64, off: f64
 ) -> Vec<f64> {
     x.iter().map(|x| {
         let u = (x - x0) / sig;
-        amp * erf(u) + lin * x + off
+        amp * erfc(u) + lin * x + off
     }).collect()
 }

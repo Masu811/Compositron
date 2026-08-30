@@ -14,7 +14,6 @@
 #include "compositron/cdbs/anti_aliasing.hpp"
 #include "compositron/cdbs/fitting.hpp"
 #include "compositron/constants.hpp"
-#include "compositron/core/fitting.hpp"
 #include "compositron/core/utils.hpp"
 #include "compositron/dbs/dbspectrum.hpp"
 
@@ -25,45 +24,25 @@ namespace compositron::cdbs {
 namespace {
 
 
-template<typename Derived>
-void write_csv(
-    const Eigen::MatrixBase<Derived>& matrix,
-    const std::string& filename
-) {
-    std::ofstream file(filename);
-
-    if (!file) {
-        throw std::runtime_error("Could not open file: " + filename);
-    }
-
-    for (Eigen::Index row = 0; row < matrix.rows(); ++row) {
-        for (Eigen::Index col = 0; col < matrix.cols(); ++col) {
-            if (col > 0) {
-                file << ',';
-            }
-
-            file << static_cast<int>(matrix(row, col));
-        }
-        file << '\n';
-    }
-}
-
-
 inline double ij_to_xy(double i, core::utils::LinearCalibration ecal) {
     return ecal.from_index(i);
 }
+
 
 inline double xy_to_ij(double x, core::utils::LinearCalibration ecal) {
     return ecal.to_index_double(x);
 }
 
+
 inline std::array<double, 2> xy_to_uv(double x, double y) {
     return {0.5 * (x - y), 0.5 * (x + y) - M_E_KEV};
 }
 
+
 inline std::array<double, 2> uv_to_xy(double u, double v) {
     return {M_E_KEV + u + v, M_E_KEV - u + v};
 }
+
 
 inline std::array<double, 2> ij_to_uv(
     double i, double j, std::array<core::utils::LinearCalibration, 2> ecal
@@ -72,6 +51,7 @@ inline std::array<double, 2> ij_to_uv(
     double y = ij_to_xy(i, ecal[0]);
     return xy_to_uv(x, y);
 }
+
 
 inline std::array<double, 2> uv_to_ij(
     double u, double v, std::array<core::utils::LinearCalibration, 2> ecal
@@ -346,7 +326,7 @@ void CDBSpectrum::fit_2d_peak(BackgroundModel bg_model) {
     auto x = Eigen::VectorXd::NullaryExpr(ncols, [ecal_2, p_bnds](auto i) {
         return ecal_2.from_index(p_bnds[1][0] + i);
     });
-    auto y = Eigen::VectorXd::NullaryExpr(ncols, [ecal_1, p_bnds](auto i) {
+    auto y = Eigen::VectorXd::NullaryExpr(nrows, [ecal_1, p_bnds](auto i) {
         return ecal_1.from_index(p_bnds[0][0] + i);
     });
 
@@ -358,22 +338,12 @@ void CDBSpectrum::fit_2d_peak(BackgroundModel bg_model) {
             size_t x0_idx = x0 + p_bnds[1][0];
             size_t y0_idx = y0 + p_bnds[0][0];
 
-            auto fit_result = fitting::fit_gauss2d(
+            peak_params = fitting::fit_gauss2d(
                 x, y, p, {
-                    max, ecal_2.from_index(x0_idx), ecal_1.from_index(y0_idx), 5, 2, -0.78
+                    max, ecal_2.from_index(x0_idx), ecal_1.from_index(y0_idx),
+                    0.7, 1.8, -0.78
                 }
             );
-
-            if (fit_result.fit_status != ceres::CONVERGENCE) {
-                throw std::runtime_error("Fit failed");
-            }
-
-            peak_params["amp"] = fit_result.opt[0];
-            peak_params["x0"] = fit_result.opt[1];
-            peak_params["y0"] = fit_result.opt[2];
-            peak_params["sig_x"] = fit_result.opt[3];
-            peak_params["sig_y"] = fit_result.opt[4];
-            peak_params["phi"] = fit_result.opt[5];
 
             break;
         }
@@ -429,7 +399,6 @@ void CDBSpectrum::extract_peak(
     subtract_bg(bg_model);
 
     peak_counts = peak.value().sum();
-    dpeak_counts = std::sqrt(peak_counts.value());
 }
 
 
@@ -505,6 +474,28 @@ double CDBSpectrum::get_max_projection_length(
 
 anti_aliasing::Polygon CDBSpectrum::calculate_polygon_boundaries(
     const DiagonalArea& area,
+    std::array<core::utils::LinearCalibration, 2> ecal,
+    std::array<std::array<size_t, 2>, 2> peak_bnds
+) {
+    double width_cel = area.width_cel.to_kev(detpair.eres);
+    double width_cml = area.width_cml.to_kev(detpair.eres);
+
+    if (std::isinf(width_cel)) {
+        width_cel = get_max_projection_length(0.5 * width_cml, ecal, peak_bnds);
+    }
+
+    if (!std::isfinite(width_cel) || !std::isfinite(width_cml)) {
+        throw std::runtime_error("Invalid boundaries for area");
+    }
+
+    return anti_aliasing::Polygon { convert_parallelogram(
+        width_cel, width_cml, 0, 0, ecal, peak_bnds
+    ).to_vertices() };
+}
+
+
+anti_aliasing::Polygon CDBSpectrum::calculate_polygon_boundaries(
+    const DiagonalAreaWithOffset& area,
     std::array<core::utils::LinearCalibration, 2> ecal,
     std::array<std::array<size_t, 2>, 2> peak_bnds
 ) {
@@ -611,6 +602,11 @@ double CDBSpectrum::blend_and_sum(
 
 
 double CDBSpectrum::integrate(const DiagonalArea& area, bool in_corrected_peak) {
+    return CDBSpectrum::integrate_generic(area, in_corrected_peak);
+}
+
+
+double CDBSpectrum::integrate(const DiagonalAreaWithOffset& area, bool in_corrected_peak) {
     return CDBSpectrum::integrate_generic(area, in_corrected_peak);
 }
 
@@ -723,9 +719,9 @@ LineshapeParam& CDBSpectrum::calc_lineshape_param(
             }
 
             std::transform(
-                vertices.begin(), vertices.end(), vertices.begin(),
+                vertices.begin(), vertices.end(), intersection.vertices.begin(),
                 [left_col, upper_row](auto& v) {
-                    return anti_aliasing::Vertex{v[0] - left_col, v[1] - upper_row};
+                    return anti_aliasing::Vertex { v[0] - left_col, v[1] - upper_row };
                 }
             );
 
@@ -812,7 +808,7 @@ Projection CDBSpectrum::project_diagonal(
     auto projection = Eigen::VectorXd::NullaryExpr(
         num_bins, [this, u_bin, width, proj_ecal, in_corrected_peak](auto i) {
             return integrate(
-                DiagonalArea(
+                DiagonalAreaWithOffset(
                     core::utils::Unit(u_bin, core::utils::KEV),
                     width,
                     core::utils::Unit(proj_ecal.from_index((size_t)i), core::utils::KEV),
@@ -878,7 +874,7 @@ Projection CDBSpectrum::project_diagonal(
             double offset = 0.5 * (left_edge + right_edge);
 
             return integrate(
-                DiagonalArea(
+                DiagonalAreaWithOffset(
                     core::utils::Unit(width_cel, core::utils::KEV),
                     core::utils::Unit(0, core::utils::KEV),
                     core::utils::Unit(offset, core::utils::KEV),

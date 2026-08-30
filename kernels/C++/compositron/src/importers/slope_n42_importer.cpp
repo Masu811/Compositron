@@ -35,6 +35,7 @@ using std::unordered_map;
 
 using compositron::core::Measurement;
 
+
 void add_version(
     xml::xml_node<>* readout_node,
     unordered_map<string, string>& metadata
@@ -57,6 +58,7 @@ void add_version(
     metadata[std::format("Instrument {} version", c)] = v;
 }
 
+
 string get_id(xml::xml_node<>* node, string name) {
     auto id_attr = node->first_attribute("id");
 
@@ -68,6 +70,7 @@ string get_id(xml::xml_node<>* node, string name) {
 
     return id_attr->value();
 }
+
 
 void gobble_hardware(
     xml::xml_node<>* hardware_node,
@@ -89,6 +92,7 @@ void gobble_hardware(
         hardware[id] = node;
     }
 }
+
 
 void gobble_instrument_information(
     xml::xml_node<>* info,
@@ -116,6 +120,7 @@ void gobble_instrument_information(
     }
 }
 
+
 void gobble_metadata(
     xml::xml_node<>* parent,
     unordered_map<string, string>& metadata
@@ -130,6 +135,7 @@ void gobble_metadata(
     }
 }
 
+
 void check_exported(xml::xml_node<>* creator_node) {
     string creator_name = creator_node->value();
 
@@ -138,6 +144,7 @@ void check_exported(xml::xml_node<>* creator_node) {
     std::cerr << "Warning: Imported data has been created with STACS "
               << "and may have been altered\n";
 }
+
 
 void sort_root_children(
     xml::xml_node<>* root,
@@ -175,6 +182,7 @@ void sort_root_children(
         }
     }
 }
+
 
 void import_hardware_readout(
     xml::xml_node<>* readout_node,
@@ -228,6 +236,7 @@ void import_hardware_readout(
     metadata[std::format("{}:Is Value", hardware_name)] = is_value;
 }
 
+
 string get_or_parse_detname(
     string det_id,
     unordered_map<string, xml::xml_node<>*>& detectors,
@@ -260,6 +269,7 @@ string get_or_parse_detname(
 
     return detname;
 }
+
 
 core::utils::LinearCalibration get_or_parse_ecal(
     string ecal_id,
@@ -307,6 +317,7 @@ core::utils::LinearCalibration get_or_parse_ecal(
     return ecal;
 }
 
+
 core::utils::Spectrum parse_dbspectrum(xml::xml_node<>* spectrum_node) {
     auto channel_data_node = spectrum_node->first_node("ChannelData");
 
@@ -329,6 +340,7 @@ core::utils::Spectrum parse_dbspectrum(xml::xml_node<>* spectrum_node) {
 
     return core::utils::Spectrum(spectrum);
 }
+
 
 void import_dbspectrum(
     xml::xml_node<>* spectrum_node,
@@ -381,6 +393,7 @@ void import_dbspectrum(
     m.dbs.emplace(detname, dbs::DBSpectrum(std::move(spectrum), detector));
 }
 
+
 string parse_detpair(xml::xml_node<>* detpair_node) {
     auto name_node = detpair_node->first_node("RadDetectorName");
 
@@ -393,6 +406,7 @@ string parse_detpair(xml::xml_node<>* detpair_node) {
     return name_node->value();
 }
 
+
 size_t parse_window(xml::xml_node<>* params, string param) {
     auto param_node = params->first_node(param.data());
 
@@ -404,6 +418,7 @@ size_t parse_window(xml::xml_node<>* params, string param) {
 
     return static_cast<size_t>(std::stol(param_node->value()));
 }
+
 
 std::array<std::array<size_t, 2>, 2> get_window(xml::xml_node<>* detpair_node) {
     auto params = detpair_node->first_node("CoincidenceParameters");
@@ -421,6 +436,7 @@ std::array<std::array<size_t, 2>, 2> get_window(xml::xml_node<>* detpair_node) {
 
     return {{{offset_x, offset_x + dim_x}, {offset_y, offset_y + dim_y}}};
 }
+
 
 core::utils::EnergyDetector get_detector(
     xml::xml_node<>* detpair_node,
@@ -462,6 +478,7 @@ core::utils::EnergyDetector get_detector(
     return m.dbs.at(detname).detector;
 }
 
+
 std::array<core::utils::EnergyDetector, 2> get_or_parse_c_dets(
     xml::xml_node<>* detpair_node,
     unordered_map<string, xml::xml_node<>*>& detectors,
@@ -482,6 +499,7 @@ std::array<core::utils::EnergyDetector, 2> get_or_parse_c_dets(
 
     return {det1, det2};
 }
+
 
 core::utils::Spectrum2D parse_cdbspectrum(
     xml::xml_node<>* spectrum_node,
@@ -508,6 +526,7 @@ core::utils::Spectrum2D parse_cdbspectrum(
         core::utils::StorageOrder::ROWMAJ
     );
 }
+
 
 void import_cdbspectrum(
     xml::xml_node<>* spectrum_node,
@@ -560,6 +579,7 @@ void import_cdbspectrum(
     m.cdbs.emplace(detpair_name, cdbs::CDBSpectrum(std::move(spectrum), detpair));
 }
 
+
 void sort_meas_children(
     Measurement& m,
     xml::xml_node<>* meas_node,
@@ -608,6 +628,7 @@ void sort_meas_children(
         );
     }
 }
+
 
 Measurement import_m(xml::xml_node<>* root, fs::path& path) {
     Measurement m{};

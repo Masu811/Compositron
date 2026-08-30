@@ -1,8 +1,6 @@
 import time
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
 
 from compositron.cdbs.cdbspectrum import DiagonalArea, LinearProjectionBins, LineshapeParamDefinition
 from compositron.core.measurement import Measurement
@@ -18,19 +16,12 @@ c = m.cdbs["OAA x OAB"]
 
 c.correct_ecal(EcalCorrectionOrder.FIRST)
 
-print(c.detpair.first_det.corrected_ecal)
-print(c.detpair.second_det.corrected_ecal)
-
 # S parameter calculation
 
 ls_param = LineshapeParamDefinition(
     name = "S",
-    num = [
-        DiagonalArea(KeV(2), KeV(1), KeV(0), KeV(0))
-    ],
-    denom = [
-        DiagonalArea(KeV(np.inf), KeV(1), KeV(0), KeV(0))
-    ],
+    num = [DiagonalArea(KeV(2), KeV(1))],
+    denom = [DiagonalArea(KeV(10), KeV(1))],
     in_corrected_peak = False,
 )
 

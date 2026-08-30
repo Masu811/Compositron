@@ -13,6 +13,8 @@ use crate::cdbs::CDBSpectrum;
 use crate::core::Measurement;
 use crate::core::utils::{EnergyDetector, EnergyDetectorPair, LinearCalibration, Spectrum, Spectrum2D};
 use crate::importers::png_importer;
+use crate::spectrum2d_match;
+
 
 #[derive(Debug, Error)]
 pub enum N42FormatError {
@@ -75,6 +77,7 @@ pub enum N42FormatError {
     },
 }
 
+
 #[derive(Debug, Error)]
 pub enum ImportError {
     #[error("Error while opening N42 file {path}")]
@@ -99,12 +102,14 @@ pub enum ImportError {
     },
 }
 
+
 #[derive(Debug)]
 enum N42Ref {
     Ecal,
     Det,
     Detpair,
 }
+
 
 impl N42Ref {
     fn node(&self) -> &str {
@@ -132,6 +137,7 @@ impl N42Ref {
     }
 }
 
+
 fn find_node<'a, 'input>(
     parent: &Node<'a, 'input>, tag: &str
 ) -> Result<Node<'a, 'input>, N42FormatError> {
@@ -142,6 +148,7 @@ fn find_node<'a, 'input>(
         }),
     }
 }
+
 
 fn find_attr<'a, 'input>(
     node: &Node<'a, 'input>, attr: &str
@@ -155,11 +162,13 @@ fn find_attr<'a, 'input>(
     }
 }
 
+
 fn add(key: &str, node: &Node, metadata: &mut HashMap<String, String>) {
     if let Some(text) = node.text() {
         metadata.insert(key.into(), text.into());
     }
 }
+
 
 fn add_version(node: &Node, metadata: &mut HashMap<String, String>) {
     let mut version: Option<&str> = None;
@@ -192,6 +201,7 @@ fn add_version(node: &Node, metadata: &mut HashMap<String, String>) {
     }
 }
 
+
 fn gobble_hardware<'a, 'input>(
     hardware_node: &Node<'a, 'input>,
     hardware: &mut HashMap<String, Node<'a, 'input>>
@@ -208,6 +218,7 @@ fn gobble_hardware<'a, 'input>(
         }
     }
 }
+
 
 fn gobble_instrument_information<'a, 'input>(
     info: &Node<'a, 'input>,
@@ -237,6 +248,7 @@ fn gobble_instrument_information<'a, 'input>(
     }
 }
 
+
 fn gobble_metadata(parent: &Node, metadata: &mut HashMap<String, String>) {
     for node in parent.children().filter(|&node| node.is_element()) {
         if let Some(text) = node.text() {
@@ -247,6 +259,7 @@ fn gobble_metadata(parent: &Node, metadata: &mut HashMap<String, String>) {
     }
 }
 
+
 fn check_exported(creator_node: &Node) {
     let Some(creator_name) = creator_node.text() else { return; };
 
@@ -256,6 +269,7 @@ fn check_exported(creator_node: &Node) {
         "Imported data has been created with STACS and may have been altered"
     );
 }
+
 
 fn sort_root_children<'a, 'input>(
     root: &Node<'a, 'input>,
@@ -300,6 +314,7 @@ fn sort_root_children<'a, 'input>(
         }
     }
 }
+
 
 fn import_hardware_readout(
     readout_node: &Node,
@@ -351,6 +366,7 @@ fn import_hardware_readout(
     Ok(())
 }
 
+
 fn get_or_parse_detname(
     det_id: &str,
     detectors: &HashMap<String, Node>,
@@ -382,6 +398,7 @@ fn get_or_parse_detname(
 
     Ok(detname.into())
 }
+
 
 fn get_or_parse_ecal(
     ecal_id: &str,
@@ -429,6 +446,7 @@ fn get_or_parse_ecal(
     Ok(ecal)
 }
 
+
 fn parse_spectrum(spectrum_node: &Node) -> Result<Spectrum, N42FormatError> {
     let channel_data_node = find_node(spectrum_node, "ChannelData")?;
 
@@ -449,6 +467,7 @@ fn parse_spectrum(spectrum_node: &Node) -> Result<Spectrum, N42FormatError> {
 
     Ok(Spectrum::from(spectrum))
 }
+
 
 fn import_dbspectrum(
     spectrum_node: &Node,
@@ -484,6 +503,7 @@ fn import_dbspectrum(
     Ok(())
 }
 
+
 fn parse_detpair(detpair_node: &Node) -> Result<String, N42FormatError> {
     let name_node = find_node(detpair_node, "RadDetectorName")?;
 
@@ -495,6 +515,7 @@ fn parse_detpair(detpair_node: &Node) -> Result<String, N42FormatError> {
     }
 }
 
+
 fn parse_window(params: &Node, param: &str) -> Result<usize, N42FormatError> {
     let param_node = find_node(&params, param)?;
 
@@ -504,6 +525,7 @@ fn parse_window(params: &Node, param: &str) -> Result<usize, N42FormatError> {
 
     Ok(param_text.parse::<usize>()?)
 }
+
 
 fn get_window(
     detpair_node: &Node
@@ -517,6 +539,7 @@ fn get_window(
 
     Ok(((offset_x, offset_x + dim_x), (offset_y, offset_y + dim_y)))
 }
+
 
 fn get_ecal(
     detpair_node: &Node,
@@ -542,6 +565,7 @@ fn get_ecal(
     }
 }
 
+
 fn get_or_parse_c_ecal(
     detpair_node: &Node,
     detectors: &HashMap<String, Node>,
@@ -557,6 +581,7 @@ fn get_or_parse_c_ecal(
         )?,
     ))
 }
+
 
 fn parse_cdbspectrum(
     spectrum_node: &Node,
@@ -577,6 +602,7 @@ fn parse_cdbspectrum(
 
     Ok(Spectrum2D::from(spectrum))
 }
+
 
 fn import_cdbspectrum(
     spectrum_node: &Node,
@@ -652,6 +678,7 @@ fn import_cdbspectrum(
     Ok(())
 }
 
+
 fn sort_meas_children<'a, 'input>(
     m: &mut Measurement,
     meas_node: &Node,
@@ -716,6 +743,7 @@ fn sort_meas_children<'a, 'input>(
     Ok(())
 }
 
+
 fn import_m(
     root: &Node, path: &Path
 ) -> Result<Measurement, N42FormatError> {
@@ -755,6 +783,7 @@ fn import_m(
 
     Ok(m)
 }
+
 
 pub fn import_n42(filename: &str) -> Result<Measurement, ImportError> {
     let path = Path::new(filename);

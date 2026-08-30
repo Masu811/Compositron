@@ -402,6 +402,7 @@ private:
             std::move(model),
             summary,
             summary.termination_type,
+            static_cast<size_t>(x.size()),
             summary.num_successful_steps,
             std::nullopt,
             std::nullopt
@@ -484,8 +485,7 @@ FitResult fit_lifetime_model(
     uint64_t counts,
     double peak_center
 ) {
-    auto fitter = LifetimeFit(x, y, input_model, counts, peak_center);
-    return fitter.fit();
+    return LifetimeFit(x, y, input_model, counts, peak_center).fit();
 }
 
 

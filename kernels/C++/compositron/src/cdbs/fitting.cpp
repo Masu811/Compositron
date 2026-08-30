@@ -2,6 +2,7 @@
 #include "compositron/core/fitting.hpp"
 
 #include <cmath>
+#include <unordered_map>
 
 
 namespace compositron::cdbs::fitting {
@@ -24,13 +25,28 @@ double gauss2d(
 }
 
 
-core::fitting::FitResult fit_gauss2d(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_gauss2d(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const Eigen::MatrixXd& z,
     const std::array<double, 6>& init
 ) {
-    return core::fitting::fit_generic_2d<Gauss2DResidual, 6>(x, y, z, init);
+    auto result = core::fitting::fit_generic_2d<Gauss2DResidual, 6>(x, y, z, init);
+
+    if (result.fit_status != ceres::CONVERGENCE) {
+        throw std::runtime_error("Fit failed");
+    }
+
+    std::unordered_map<std::string, core::fitting::SimpleFitParam> map;
+
+    map["amp"] = result.opt[0];
+    map["x0"] = result.opt[1];
+    map["y0"] = result.opt[2];
+    map["sig_x"] = result.opt[3];
+    map["sig_y"] = result.opt[4];
+    map["phi"] = result.opt[5];
+
+    return map;
 }
 
 

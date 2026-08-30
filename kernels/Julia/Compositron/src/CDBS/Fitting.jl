@@ -1,6 +1,8 @@
 using NonlinearSolve
 
-using ..Utils: SimpleFitParam
+using ..Utils
+
+export gauss2d, fit_gauss2d
 
 
 function gauss2d(
@@ -36,9 +38,7 @@ function fit_gauss2d(
     yy = vec([yi for yi in y, _ in x])
     zz = vec(z)
 
-    w = @. 1 / sqrt(max(zz, 1))
-
-    m(u, p) = w .* (
+    m(u, p) = (
         gauss2d.(p[1], p[2], u[1], u[2], u[3], u[4], u[5], u[6]) .- zz
     )
 

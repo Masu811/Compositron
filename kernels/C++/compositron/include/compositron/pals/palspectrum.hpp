@@ -1,8 +1,11 @@
 #pragma once
 
+#include <Eigen/Core>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
+#include "compositron/core/fitting.hpp"
 #include "compositron/core/utils.hpp"
 #include "compositron/pals/fitting.hpp"
 #include "compositron/pals/model.hpp"
@@ -16,16 +19,7 @@ public:
     core::utils::Spectrum spectrum;
     core::utils::TimingDetectorPair detpair;
     uint64_t counts;
-    double dcounts;
-    std::optional<std::string> name;
-    std::optional<Eigen::VectorXd> peak;
-    std::optional<std::array<size_t, 2>> peak_bnds;
-    std::optional<double> peak_counts;
-    std::optional<double> dpeak_counts;
-    std::optional<double> peak_center;
-    std::optional<double> dpeak_center;
-    std::optional<double> peak_fwhm;
-    std::optional<double> dpeak_fwhm;
+    std::unordered_map<std::string, core::fitting::SimpleFitParam> peak_params;
     std::optional<fitting::FitResult> fit_result;
 
     PALSpectrum() = delete;
@@ -44,11 +38,11 @@ public:
         const std::vector<T>& spectrum, core::utils::TimingDetectorPair detpair
     ) : PALSpectrum(core::utils::Spectrum(spectrum), detpair) {}
 
-    Eigen::VectorXd get_peak_energies();
+    Eigen::VectorXd get_peak_energies(size_t fit_start_idx, size_t fit_end_idx);
 
-    void extract_peak(size_t fit_start_idx, size_t fit_end_idx);
+    Eigen::VectorXd extract_peak(size_t fit_start_idx, size_t fit_end_idx);
 
-    void get_peak_center();
+    double get_peak_center();
 
     void fit(
         const model::LifetimeModel& model, size_t fit_start_idx, size_t fit_end_idx

@@ -23,9 +23,7 @@ fn import_csv(
 fn main() -> anyhow::Result<(), ImportError> {
     let filename = "";
 
-    let mut m = Measurement::new();
-
-    m.import(
+    let _ = Measurement::from_file(
         filename, DataFormat::Custom { importer: import_csv }
     )?;
 

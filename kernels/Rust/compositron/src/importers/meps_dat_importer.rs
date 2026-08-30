@@ -179,13 +179,7 @@ fn get_header_info(
     m.metadata.insert("PositronImplantationEnergy".into(), format!("{energy}"));
     m.metadata.insert("SampleTemperature".into(), format!("{temperature}"));
 
-    Ok(HeaderInfo {
-        index,
-        sample,
-        energy,
-        temperature,
-        bin_width,
-    })
+    Ok(HeaderInfo { index, sample, energy, temperature, bin_width })
 }
 
 fn compare_filename_and_header(filepath: &PathBuf, header: &HeaderInfo) {

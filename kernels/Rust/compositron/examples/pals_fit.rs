@@ -2,10 +2,9 @@ use compositron::core::Measurement;
 use compositron::importers::DataFormat;
 use compositron::lifetime_model;
 
-fn main() -> anyhow::Result<()> {
-    let mut m = Measurement::new();
 
-    m.import(
+fn main() -> anyhow::Result<()> {
+    let mut m = Measurement::from_file(
         "../../../../testdata/1_W3Re6_2.00keV_301.0K_10.0Mio_PALS_01.05.26_08.42.22.dat",
         DataFormat::MePSDat
     )?;
@@ -28,7 +27,7 @@ fn main() -> anyhow::Result<()> {
 
     s.fit(lt_model, 16500, 18000)?;
 
-    print!("{}", s.fit_report()?);
+    println!("{}", s.fit_report()?);
 
     Ok(())
 }

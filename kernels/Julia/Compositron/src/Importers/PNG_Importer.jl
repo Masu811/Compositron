@@ -1,6 +1,9 @@
 using PNGFiles: load
 
-using ...Utils: min_spectrum2d
+using ...Utils
+
+export import_png
+
 
 function import_png(filename::String)::Matrix{<:Unsigned}
     img = load(filename)

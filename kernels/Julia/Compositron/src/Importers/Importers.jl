@@ -1,4 +1,5 @@
-using .Importers: import_slope_n42, import_meps_dat
+using .Importers
+
 
 function Measurement(filepath::String)
     _, ext = splitext(filepath)

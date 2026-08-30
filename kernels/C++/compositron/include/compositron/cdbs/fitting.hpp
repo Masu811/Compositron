@@ -40,14 +40,15 @@ struct Gauss2DResidual {
         T u = x_rotated / sig_x;
         T v = y_rotated / sig_y;
 
-        residual[0] = w * (z - amp * ceres::exp(-0.5 * u * u - 0.5 * v * v));
+        // Not weighted on purpose!
+        residual[0] = z - amp * ceres::exp(-0.5 * u * u - 0.5 * v * v);
 
         return true;
     }
 };
 
 
-core::fitting::FitResult fit_gauss2d(
+std::unordered_map<std::string, core::fitting::SimpleFitParam> fit_gauss2d(
     const Eigen::VectorXd& x,
     const Eigen::VectorXd& y,
     const Eigen::MatrixXd& z,

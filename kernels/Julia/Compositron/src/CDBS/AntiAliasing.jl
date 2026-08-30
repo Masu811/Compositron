@@ -2,6 +2,10 @@ using LinearAlgebra
 
 using ..Constants: PI
 
+export Vertex, ConvexToVerticesCounterClockwise, Polygon, Rectangle,
+    Parallelogram, Ellipse, to_vertices, get_bounding_box, agg_aa,
+    intersect_convex_polygons
+
 const libagg = joinpath(@__DIR__, "../../../../shared/agg/libagg.so")
 
 
@@ -14,7 +18,7 @@ end
 abstract type ConvexToVerticesCounterClockwise end
 
 
-struct Polygon <: ConvexToVerticesCounterClockwise
+mutable struct Polygon <: ConvexToVerticesCounterClockwise
     vertices::Vector{Vertex}
 end
 
@@ -69,10 +73,10 @@ function to_vertices(p::Parallelogram)::Vector{Vertex}
 
     x0 = [p.center_j, p.center_i]
 
-    v1 = x0 + (w + h)
-    v2 = x0 + (w - h)
-    v3 = x0 + (-w - h)
-    v4 = x0 + (-w + h)
+    v1 = x0 + (w - h)
+    v2 = x0 + (w + h)
+    v3 = x0 + (-w + h)
+    v4 = x0 + (-w - h)
 
     return [
         Vertex(v1[1], v1[2]), Vertex(v2[1], v2[2]),
@@ -143,7 +147,7 @@ function agg_aa(
 
     # Transform our coords (pixel centers at integer coords)
     # to agg's coords (pixel boundaries at integer coords)
-    vertices = [Vertex(v.x + 0.5, v.y + 0.5) for v in vertices]
+    vertices = [Vertex(v.x - 0.5, v.y - 0.5) for v in vertices]
 
     if any(v.x < 0 || v.x > ncols || v.y < 0 || v.y > nrows for v in vertices)
         throw(ErrorException("Polygon vertices are out of matrix bounds"))
@@ -184,7 +188,7 @@ function inside(v::Vertex, v1::Vertex, v2::Vertex)::Bool
     a = [v1.x - v2.x, v1.y - v2.y]
     b = [v1.x - v.x, v1.y - v.y]
 
-    a[1] * b[2] - a[2] * b[1] < 0
+    a[1] * b[2] - a[2] * b[1] >= 0
 end
 
 
@@ -205,14 +209,14 @@ function intersect_convex_polygons(
 
     for i in eachindex(va)
         edge_start = va[i]
-        edge_end = va[(i + 1) % la + 1]
+        edge_end = va[i % la + 1]
 
         input = output
         output = []
 
-        for i in eachindex(input)
-            curr = input[i]
-            prev = input[(i - 1) % length(input) + 1]
+        for j in eachindex(input)
+            curr = input[j]
+            prev = input[(j + length(input) - 2) % length(input) + 1]
 
             curr_inside = inside(curr, edge_start, edge_end)
             prev_inside = inside(prev, edge_start, edge_end)

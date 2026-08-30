@@ -1,7 +1,8 @@
+#include <iostream>
+
 #include "compositron/core/measurement.hpp"
 #include "compositron/dbs/dbspectrum.hpp"
 
-#include <iostream>
 
 int main() {
     compositron::core::Measurement m(
@@ -10,25 +11,19 @@ int main() {
 
     std::cout << m.shape() << std::endl;
 
-    auto& s = m.dbs.at("OAB");
+    auto& d = m.dbs.at("OAB");
 
-    s.default_analyze();
+    d.default_analyze();
 
-    std::cout << "S: "
-              << s.lineshape_params["S"].val << " +/- "
-              << s.lineshape_params["S"].err << std::endl;
+    auto s = d.lineshape_params["S"];
+    auto w = d.lineshape_params["W"];
+    auto v = d.lineshape_params["V/P"];
+    auto p = d.lineshape_params["P/T"];
 
-    std::cout << "W: "
-              << s.lineshape_params["W"].val << " +/- "
-              << s.lineshape_params["W"].err << std::endl;
-
-    std::cout << "V/P: "
-              << s.lineshape_params["V/P"].val << " +/- "
-              << s.lineshape_params["V/P"].err << std::endl;
-
-    std::cout << "P/T: "
-              << s.lineshape_params["P/T"].val << " +/- "
-              << s.lineshape_params["P/T"].err << std::endl;
+    std::cout << "  S:   " << s.val << " +/- " << s.err << std::endl;
+    std::cout << "  W:   " << w.val << " +/- " << w.err << std::endl;
+    std::cout << "  V/P: " << v.val << " +/- " << v.err << std::endl;
+    std::cout << "  P/T: " << p.val << " +/- " << p.err << std::endl;
 
     return 0;
 }

@@ -1,6 +1,7 @@
 #include "compositron/dbs/dbspectrum.hpp"
 
-#include <ceres/types.h>
+#include <iostream>
+
 #include <cmath>
 #include <cstddef>
 #include <numeric>
@@ -12,7 +13,6 @@
 #include <eigen3/Eigen/Core>
 
 #include "compositron/constants.hpp"
-#include "compositron/core/fitting.hpp"
 #include "compositron/core/utils.hpp"
 #include "compositron/dbs/fitting.hpp"
 
@@ -31,9 +31,7 @@ double integrate_const(
 ) {
     double counts = 0;
 
-    // index of lowest channel still inside ROI
     size_t lowest_ch = std::round(lower_ch_bnd);
-    // index of highest channel still inside ROI
     size_t highest_ch = std::round(upper_ch_bnd);
 
     counts += spectrum(
@@ -169,43 +167,52 @@ std::vector<std::array<double, 2>> get_area_bnds(
 
 // class Area
 
-Area::Area(core::utils::Unit width) : width(width), type(AreaType::PEAK) {}
+std::array<double, 2> PeakArea::to_bnds_kev(double eres) const {
+    double width_kev = width.to_kev(eres);
+
+    double left_bnd_kev = M_E_KEV - width_kev / 2;
+    double right_bnd_kev = M_E_KEV + width_kev / 2;
+
+    return { left_bnd_kev, right_bnd_kev };
+}
+
+
+std::array<double, 2> PeakAreaWithOffset::to_bnds_kev(double eres) const {
+    double width_kev = width.to_kev(eres);
+    double offset_kev = offset.to_kev(eres);
+
+    double left_bnd_kev = M_E_KEV - width_kev / 2 + offset_kev;
+    double right_bnd_kev = M_E_KEV + width_kev / 2 + offset_kev;
+
+    return { left_bnd_kev, right_bnd_kev };
+}
+
+
+std::array<double, 2> SpectrumArea::to_bnds_kev(double eres) const {
+    return { left_bnd_kev, right_bnd_kev };
+}
+
+
+Area::Area(core::utils::Unit width) : data(PeakArea(width)) {}
+
 
 Area::Area(
     core::utils::Unit width, core::utils::Unit offset
-) : width(width), offset(offset), type(AreaType::PEAKOFFSET) {}
+) : data(PeakAreaWithOffset(width, offset)) {}
+
 
 Area::Area(
-    double left_bnd, double right_bnd
-) : left_bnd(left_bnd), right_bnd(right_bnd), type(AreaType::SPECTRUM) {}
+    double left_bnd_kev, double right_bnd_kev
+) : data(SpectrumArea(left_bnd_kev, right_bnd_kev)) {}
 
-std::array<double, 2> Area::to_bnds_kev(double eres) {
-    switch (type) {
-        case PEAK: {
-            double width_kev = width.to_kev(eres);
 
-            left_bnd = M_E_KEV - width_kev / 2;
-            right_bnd = M_E_KEV + width_kev / 2;
-            type = AreaType::SPECTRUM;
-
-            return { left_bnd, right_bnd };
-        }
-        case PEAKOFFSET: {
-            double width_kev = width.to_kev(eres);
-            double offset_kev = offset.to_kev(eres);
-
-            left_bnd = M_E_KEV - width_kev / 2 + offset_kev;
-            right_bnd = M_E_KEV + width_kev / 2 + offset_kev;
-            type = AreaType::SPECTRUM;
-
-            return { left_bnd, right_bnd };
-        }
-        case SPECTRUM: {
-            return { left_bnd, right_bnd };
-        }
-        default:
-            return {};
-    }
+std::array<double, 2> Area::to_bnds_kev(double eres) const {
+    return std::visit(
+        [this, eres](const auto& area) {
+            return area.to_bnds_kev(eres);
+        },
+        data
+    );
 }
 
 
@@ -226,14 +233,13 @@ DBSpectrum::DBSpectrum(
         },
         this->spectrum.data
     );
-    dcounts = std::sqrt(counts);
 }
 
 
 Eigen::VectorXd DBSpectrum::get_peak_energies() {
     auto ecal = detector.corrected_ecal.value_or(detector.ecal);
 
-    auto [left_peak_idx, right_peak_idx] = peak_bnds.value();
+    auto [left_peak_idx, right_peak_idx] = peak_bnd_idcs.value();
 
     size_t len = right_peak_idx - left_peak_idx + 1;
 
@@ -243,124 +249,56 @@ Eigen::VectorXd DBSpectrum::get_peak_energies() {
 }
 
 
-bool DBSpectrum::fit_peak(PeakModel peak_model) {
+void DBSpectrum::fit_peak(PeakModel peak_model) {
     auto x = get_peak_energies();
     auto& y = peak.value();
 
+    auto max = y.maxCoeff();
+
+    if (peak_model == GAUSS) {
+        peak_params = fitting::fit_gauss(x, y, {max, 511., 3.});
+        return;
+    }
+
+    auto min = y.minCoeff();
+
+    double first = *y.begin();
+    double last = *std::prev(y.end());
+    double erf_amp = 0.5 * (first - last);
+
     switch (peak_model) {
-        case GAUSS: {
-            std::array<double, 3> init = {y.maxCoeff(), 511., 3.};
-
-            auto result = fitting::fit_gaussian(x, y, init);
-
-            if (result.fit_status != ceres::CONVERGENCE) return false;
-
-            peak_params["amp_1"] = result.opt[0];
-            peak_params["x0_1"] = result.opt[1];
-            peak_params["sig_1"] = result.opt[2];
-
-            break;
-        }
         case ERFLINEAR1GAUSS: {
-            auto max = y.maxCoeff();
-            std::array<double, 6> init = {
-                max,
-                511.,
-                1.,
-                *std::prev(y.end()) - *y.begin(),
-                0.,
-                y.minCoeff()
-            };
-
-            auto result = fitting::fit_erf_linear_1_gauss(x, y, init);
-
-            if (result.fit_status != ceres::CONVERGENCE) return false;
-
-            peak_params["amp_1"] = result.opt[0];
-            peak_params["x0_1"] = result.opt[1];
-            peak_params["sig_1"] = result.opt[2];
-            peak_params["erf_amp"] = result.opt[3];
-            peak_params["lin"] = result.opt[4];
-            peak_params["const"] = result.opt[5];
-
+            peak_params = fitting::fit_erf_linear_1_gauss(
+                x, y, {max, 511., 1., erf_amp, 0., min}
+            );
             break;
         }
         case ERFLINEAR2GAUSS: {
-            auto max = y.maxCoeff();
-            std::array<double, 9> init = {
-                max / 2,
-                511.,
-                1.,
-                max / 2,
-                511.,
-                1.5,
-                *std::prev(y.end()) - *y.begin(),
-                0.,
-                y.minCoeff()
-            };
-
-            auto result = fitting::fit_erf_linear_2_gauss(x, y, init);
-
-            if (result.fit_status != ceres::CONVERGENCE) return false;
-
-            peak_params["amp_1"] = result.opt[0];
-            peak_params["x0_1"] = result.opt[1];
-            peak_params["sig_1"] = result.opt[2];
-            peak_params["amp_2"] = result.opt[3];
-            peak_params["x0_2"] = result.opt[4];
-            peak_params["sig_2"] = result.opt[5];
-            peak_params["erf_amp"] = result.opt[6];
-            peak_params["lin"] = result.opt[7];
-            peak_params["const"] = result.opt[8];
-
+            peak_params = fitting::fit_erf_linear_2_gauss(
+                x, y, {max / 2, 511., 1., max / 2, 511., 1.5, erf_amp, 0., min}
+            );
             break;
         }
         case ERFLINEAR3GAUSS: {
-            auto max = y.maxCoeff();
-            std::array<double, 12> init = {
-                max / 3,
-                511.,
-                1.,
-                max / 3,
-                510.,
-                1.5,
-                max / 3,
-                509.,
-                2.0,
-                *std::prev(y.end()) - *y.begin(),
-                0.,
-                y.minCoeff()
-            };
-
-            auto result = fitting::fit_erf_linear_3_gauss(x, y, init);
-
-            if (result.fit_status != ceres::CONVERGENCE) return false;
-
-            peak_params["amp_1"] = result.opt[0];
-            peak_params["x0_1"] = result.opt[1];
-            peak_params["sig_1"] = result.opt[2];
-            peak_params["amp_2"] = result.opt[3];
-            peak_params["x0_2"] = result.opt[4];
-            peak_params["sig_2"] = result.opt[5];
-            peak_params["amp_3"] = result.opt[6];
-            peak_params["x0_3"] = result.opt[7];
-            peak_params["sig_3"] = result.opt[8];
-            peak_params["erf_amp"] = result.opt[9];
-            peak_params["lin"] = result.opt[10];
-            peak_params["const"] = result.opt[11];
-
+            peak_params = fitting::fit_erf_linear_3_gauss(
+                x, y, {
+                    max / 3, 511., 1., max / 3, 511., 1.5, max / 3,
+                    511., 2., erf_amp, 0., min
+                }
+            );
             break;
         }
+        default: {
+            throw std::runtime_error("Unreachable code reached");
+        }
     }
-
-    return true;
 }
 
 
 void DBSpectrum::subtract_bg(PeakModel peak_model) {
     if (peak_model == PeakModel::GAUSS) return;
 
-    if (!fit_peak(peak_model)) return;
+    fit_peak(peak_model);
 
     auto x = get_peak_energies();
     auto& y = peak.value();
@@ -375,15 +313,13 @@ void DBSpectrum::subtract_bg(PeakModel peak_model) {
         return fitting::erf_linear_background(x_i, amp, x0, sig, lin, off);
     });
 
-    for (size_t i = 0; i < y.size(); ++i) {
-        y[i] -= corr[i];
+    for (auto&& [y_i, c_i] : std::views::zip(y, corr)) {
+        y_i = std::max(y_i - c_i, 0.);
     }
 }
 
 
-void DBSpectrum::extract_peak(
-    double peak_width, bool bg_corr, PeakModel peak_model
-)  {
+void DBSpectrum::extract_peak(double peak_width, PeakModel peak_model)  {
     auto ecal = detector.corrected_ecal.value_or(detector.ecal);
 
     auto left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2);
@@ -395,8 +331,6 @@ void DBSpectrum::extract_peak(
         );
     }
 
-    peak_bnds = {left_peak_idx, right_peak_idx};
-
     peak = std::visit(
         [left_peak_idx, right_peak_idx](const auto& spectrum) {
             auto peak = spectrum(Eigen::seq(left_peak_idx, right_peak_idx));
@@ -405,9 +339,9 @@ void DBSpectrum::extract_peak(
         spectrum.data
     );
 
-    if (bg_corr) {
-        subtract_bg(peak_model);
-    }
+    peak_bnd_idcs = {left_peak_idx, right_peak_idx};
+
+    subtract_bg(peak_model);
 }
 
 
@@ -415,7 +349,7 @@ void DBSpectrum::correct_ecal(core::utils::EcalCorrectionOrder order) {
     if (order == core::utils::EcalCorrectionOrder::NONE) return;
 
     if (!peak.has_value()) {
-        extract_peak(20., false, PeakModel::GAUSS);
+        extract_peak(20., PeakModel::GAUSS);
     }
 
     fit_peak(PeakModel::GAUSS);
@@ -446,13 +380,6 @@ double DBSpectrum::integrate(
 ) {
     auto [lower_bnd, upper_bnd] = area.to_bnds_kev(detector.eres);
 
-    if (in_corrected_peak && !peak.has_value()) {
-        throw std::runtime_error(
-            "Attempting analysis on background subtracted peak, but no "
-            "subtraction has been performed yet"
-        );
-    }
-
     if (lower_bnd >= upper_bnd) {
         throw std::runtime_error(
             "Input parameter violates constaint lower bound < upper bound"
@@ -465,9 +392,18 @@ double DBSpectrum::integrate(
     double upper_ch_bnd = ecal.to_index_double(upper_bnd);
 
     if (in_corrected_peak) {
-        auto [lower_peak_bnd, _] = peak_bnds.value();
+        if (!peak.has_value()) {
+            throw std::runtime_error(
+                "Attempting analysis on background subtracted peak, but no "
+                "subtraction has been performed yet"
+            );
+        }
+
+        auto [lower_peak_bnd, _] = peak_bnd_idcs.value();
+
         lower_ch_bnd -= lower_peak_bnd;
         upper_ch_bnd -= lower_peak_bnd;
+
         return integrate_generic(
             peak.value(), lower_ch_bnd, upper_ch_bnd, bin_integration_scheme
         );
@@ -519,11 +455,11 @@ LineshapeParam& DBSpectrum::calc_lineshape_param(
 
     for (const auto num_bnd : num_bnds) {
         for (const auto denom_bnd : denom_bnds) {
-            double left_bnd = std::max(num_bnd[0], denom_bnd[0]);
-            double right_bnd = std::min(num_bnd[1], denom_bnd[1]);
-            if (left_bnd < right_bnd) {
+            double left_bnd_kev = std::max(num_bnd[0], denom_bnd[0]);
+            double right_bnd_kev = std::min(num_bnd[1], denom_bnd[1]);
+            if (left_bnd_kev < right_bnd_kev) {
                 common += integrate(
-                    Area(left_bnd, right_bnd),
+                    Area(left_bnd_kev, right_bnd_kev),
                     definition.in_corrected_peak,
                     bin_integration_scheme
                 );
@@ -535,7 +471,7 @@ LineshapeParam& DBSpectrum::calc_lineshape_param(
     double err = val * std::sqrt(
         (num - common) / std::pow(num, 2) +
         (denom - common) / std::pow(denom, 2) +
-        common * ((denom - num) / std::pow(denom * num, 2))
+        common * std::pow((denom - num) / (denom * num), 2)
     );
 
     LineshapeParam ls_param {
@@ -547,17 +483,18 @@ LineshapeParam& DBSpectrum::calc_lineshape_param(
     return lineshape_params.at(definition.name);
 }
 
+
 void DBSpectrum::default_analyze() {
     correct_ecal(core::utils::EcalCorrectionOrder::FIRST);
 
-    extract_peak(30, true, PeakModel::ERFLINEAR1GAUSS);
+    extract_peak(30, PeakModel::ERFLINEAR2GAUSS);
 
     for (const auto& param : STD_LINESHAPE_PARAMS) {
         calc_lineshape_param(param, BinIntegrationScheme::CONST);
     }
 
     peak = std::nullopt;
-    peak_bnds = std::nullopt;
+    peak_bnd_idcs = std::nullopt;
 }
 
 

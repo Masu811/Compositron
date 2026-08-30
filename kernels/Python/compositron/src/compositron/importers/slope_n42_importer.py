@@ -415,15 +415,28 @@ def import_cdbspectrum(
 
     window = get_window(detpair_node)
 
-    dets[0].ecal.offset += window[0][0] * dets[0].ecal.scale
-    dets[1].ecal.offset += window[1][0] * dets[1].ecal.scale
-
     spectrum = parse_cdbspectrum(spectrum_node, path)
 
     detpair = EnergyDetectorPair(
         name = detpair_name,
-        first_det = dets[0],
-        second_det = dets[1],
+        first_det = EnergyDetector(
+            dets[0].name,
+            LinearCalibration(
+                dets[0].ecal.offset + window[0][0] * dets[0].ecal.scale,
+                dets[0].ecal.scale
+            ),
+            None,
+            None
+        ),
+        second_det = EnergyDetector(
+            dets[1].name,
+            LinearCalibration(
+                dets[1].ecal.offset + window[1][0] * dets[1].ecal.scale,
+                dets[1].ecal.scale
+            ),
+            None,
+            None
+        ),
         eres = None,
     )
 

@@ -1,18 +1,37 @@
-using ..Utils: EnergyDetectorPair, min_spectrum2d, SimpleFitParam, Unit, KeV, Eres, LinearCalibration, EnergyDetector, EcalCorrectionOrder, to_index_float, to_index_rounded, from_index, no_corr, first_order, zeroth_order, to_kev, copy
-using ..DBS: DBSpectrum
-using ..Constants: M_E_KEV
+using ..Utils
+using ..DBS
+using ..Constants
+
+export BackgroundModel, BGModel_None, Axis, Axis_FirstDet, Axis_SecondDet,
+    Area, DiagonalArea, DiagonalAreaWithOffset, AxisAlignedArea, EllipseArea,
+    ProjectionBins, LinearProjectionBins, CustomProjectionBins, LineshapeParam,
+    LineshapeParamDefinition, STD_LINESHAPE_PARAMS, FoldedProjection,
+    Projection, get_energies, fold, to_dbspectrum, CDBSpectrum, project_axes,
+    extract_peak!, correct_ecal!, integrate, calc_lineshape_param!,
+    default_analyze!, project_diagonal
 
 
-@enum BackgroundModel BGModelNone
+@enum BackgroundModel begin
+    BGModel_None
+end
 
 
-@enum Axis FirstDetAxis SecondDetAxis
+@enum Axis begin
+    Axis_FirstDet
+    Axis_SecondDet
+end
 
 
 abstract type Area end
 
 
 struct DiagonalArea <: Area
+    width_cel::Unit
+    width_cml::Unit
+end
+
+
+struct DiagonalAreaWithOffset <: Area
     width_cel::Unit
     width_cml::Unit
     offset_cel::Unit
@@ -65,22 +84,22 @@ end
 const STD_LINESHAPE_PARAMS::Vector{LineshapeParamDefinition} = [
     LineshapeParamDefinition(
         "S",
-        [DiagonalArea(KeV(2), Eres(1), KeV(0), KeV(0))],
-        [DiagonalArea(KeV(Inf), Eres(1), KeV(0), KeV(0))],
+        [DiagonalArea(KeV(2), Eres(1))],
+        [DiagonalArea(KeV(Inf), Eres(1))],
         true
     ),
     LineshapeParamDefinition(
         "W",
         [
-            DiagonalArea(KeV(1), Eres(1), KeV(3), KeV(0)),
-            DiagonalArea(KeV(1), Eres(1), KeV(-3), KeV(0)),
+            DiagonalAreaWithOffset(KeV(1), Eres(1), KeV(3), KeV(0)),
+            DiagonalAreaWithOffset(KeV(1), Eres(1), KeV(-3), KeV(0)),
         ],
-        [DiagonalArea(KeV(Inf), Eres(1), KeV(0), KeV(0))],
+        [DiagonalArea(KeV(Inf), Eres(1))],
         true
     ),
     LineshapeParamDefinition(
         "P/T",
-        [DiagonalArea(KeV(Inf), Eres(1), KeV(0), KeV(0))],
+        [DiagonalArea(KeV(Inf), Eres(1))],
         [AxisAlignedArea((-Inf, Inf), (-Inf, Inf))],
         false
     ),
@@ -130,10 +149,10 @@ function convert_rectangle(
     peak_bnds::Tuple{Tuple{Int, Int}, Tuple{Int, Int}},
 )::Rectangle
     Rectangle(
-        to_index_float(ecal[1], first_det_bnds[2]) - peak_bnds[1][1],
-        to_index_float(ecal[1], first_det_bnds[1]) - peak_bnds[1][1],
-        to_index_float(ecal[2], second_det_bnds[1]) - peak_bnds[2][1],
-        to_index_float(ecal[2], second_det_bnds[2]) - peak_bnds[2][1],
+        to_index_float(ecal[1], first_det_bnds[2]) - peak_bnds[1][1] + 1,
+        to_index_float(ecal[1], first_det_bnds[1]) - peak_bnds[1][1] + 1,
+        to_index_float(ecal[2], second_det_bnds[1]) - peak_bnds[2][1] + 1,
+        to_index_float(ecal[2], second_det_bnds[2]) - peak_bnds[2][1] + 1,
     )
 end
 
@@ -154,8 +173,8 @@ function convert_parallelogram(
         (width_cml / ecal[2].scale)^2 + (-width_cml / ecal[1].scale)^2
     ))
     Parallelogram(
-        i - peak_bnds[1][1],
-        j - peak_bnds[2][1],
+        i - peak_bnds[1][1] + 1,
+        j - peak_bnds[2][1] + 1,
         -ecal[2].scale / ecal[1].scale,
         ecal[2].scale / ecal[1].scale,
         w1,
@@ -177,8 +196,8 @@ function convert_ellipse(
         (radius_cml / ecal[2].scale)^2 + (-radius_cml / ecal[1].scale)^2
     ))
     Ellipse(
-        to_index_float(ecal[1], M_E_KEV) - peak_bnds[1][1],
-        to_index_float(ecal[2], M_E_KEV) - peak_bnds[2][1],
+        to_index_float(ecal[1], M_E_KEV) - peak_bnds[1][1] + 1,
+        to_index_float(ecal[2], M_E_KEV) - peak_bnds[2][1] + 1,
         w1,
         w2,
         -atan(ecal[2].scale / ecal[1].scale),
@@ -198,7 +217,6 @@ struct Projection
     ecal::Union{Nothing, LinearCalibration}
     bins::Union{Nothing, Vector{Float64}}
     counts::Float64
-    dcounts::Float64
 
     function Projection(
         spectrum::Vector{Float64},
@@ -206,16 +224,12 @@ struct Projection
         ecal::Union{Nothing, LinearCalibration},
         bins::Union{Nothing, Vector{Float64}},
     )
-        counts = sum(spectrum)
-        dcounts = sqrt(counts)
-
         new(
             spectrum,
             parent_detector_name,
             ecal,
             bins,
-            counts,
-            dcounts,
+            sum(spectrum),
         )
     end
 end
@@ -325,11 +339,9 @@ mutable struct CDBSpectrum
     spectrum::Matrix{<:Unsigned}
     detpair::EnergyDetectorPair
     counts::UInt64
-    dcounts::Float64
     peak::Union{Nothing, Matrix{Float64}}
     peak_bnds::Union{Nothing, Tuple{Tuple{Int, Int}, Tuple{Int, Int}}}
     peak_counts::Union{Nothing, Float64}
-    dpeak_counts::Union{Nothing, Float64}
     peak_params::Dict{String, SimpleFitParam}
     lineshape_params::Dict{String, LineshapeParam}
 
@@ -337,15 +349,10 @@ mutable struct CDBSpectrum
         spectrum::AbstractMatrix{<:Integer},
         detpair::EnergyDetectorPair,
     )
-        counts = sum(spectrum)
-        dcounts = sqrt(counts)
-
         new(
             min_spectrum2d(spectrum),
             detpair,
-            counts,
-            dcounts,
-            nothing,
+            sum(spectrum),
             nothing,
             nothing,
             nothing,
@@ -357,7 +364,7 @@ end
 
 
 function project_axes(c::CDBSpectrum, onto_axis::Axis):::Projection
-    if onto_axis == FirstDetAxis
+    if onto_axis == Axis_FirstDet
         Projection(
             sum(c.spectrum, dims=1),
             c.detpair.first_det.name,
@@ -393,23 +400,23 @@ function _fit_2d_peak!(c::CDBSpectrum, bg_model::BackgroundModel)
     x = c.peak_bnds[2][1]:c.peak_bnds[2][2] .|> i -> from_index(ecal_2, i)
     y = c.peak_bnds[1][1]:c.peak_bnds[1][2] .|> i -> from_index(ecal_1, i)
 
-    if bg_model == BGModelNone
+    if bg_model == BGModel_None
         i0, j0 = Tuple(argmax(c.peak))
 
         max_val = c.peak[i0, j0]
 
-        y0 = from_index(ecal_1, i0 + c.peak_bnds[1][1])
-        x0 = from_index(ecal_2, j0 + c.peak_bnds[2][1])
+        y0 = from_index(ecal_1, i0 + c.peak_bnds[1][1] - 1)
+        x0 = from_index(ecal_2, j0 + c.peak_bnds[2][1] - 1)
 
         c.peak_params = fit_gauss2d(
-            x, y, c.peak, [max_val, x0, y0, 1, 2, -0.78],
+            x, y, c.peak, [max_val, x0, y0, 0.7, 1.8, -0.78],
         )
     end
 end
 
 
-function _subtract_peak!(c::CDBSpectrum, bg_model::BackgroundModel)
-    if bg_model == BGModelNone
+function _subtract_bg!(c::CDBSpectrum, bg_model::BackgroundModel)
+    if bg_model == BGModel_None
         return
     end
 end
@@ -443,26 +450,25 @@ function extract_peak!(
 
     c.peak_bnds = ((first_row, last_row), (first_col, last_col))
 
-    _subtract_peak!(c, bg_model)
+    _subtract_bg!(c, bg_model)
 
     peak_counts = sum(c.peak)
 
     c.peak_counts = peak_counts
-    c.dpeak_counts = sqrt(peak_counts)
 end
 
 
 function correct_ecal!(c::CDBSpectrum, order::EcalCorrectionOrder)
-    if order == no_corr
+    if order == EcalCorrOrder_None
         return
     end
 
     if isnothing(c.peak)
-        extract_peak!(c, (4., 4.), BGModelNone)
+        extract_peak!(c, (4., 4.), BGModel_None)
     end
 
     if !haskey(c.peak_params, "x0") || !haskey(c.peak_params, "y0")
-        _fit_2d_peak!(c, BGModelNone)
+        _fit_2d_peak!(c, BGModel_None)
     end
 
     x0 = c.peak_params["x0"].val
@@ -471,7 +477,7 @@ function correct_ecal!(c::CDBSpectrum, order::EcalCorrectionOrder)
     ecal_1 = copy(c.detpair.first_det.ecal)
     ecal_2 = copy(c.detpair.second_det.ecal)
 
-    if order == zeroth_order
+    if order == EcalCorrOrder_Zeroth
         ecal_1.offset += M_E_KEV - y0
         ecal_2.offset += M_E_KEV - x0
     else
@@ -522,6 +528,21 @@ function _calculate_polygon_boundaries(
     peak_bnds::Tuple{Tuple{Int, Int}, Tuple{Int, Int}},
 )::ConvexToVerticesCounterClockwise
     if isa(area, DiagonalArea)
+        width_cel = to_kev(area.width_cel, c.detpair.eres)
+        width_cml = to_kev(area.width_cml, c.detpair.eres)
+
+        if isinf(width_cel)
+            width_cel = _get_max_projection_length(
+                0.5 * width_cml, ecal, peak_bnds
+            )
+        end
+
+        if any(!isfinite(x) for x in [width_cel, width_cml])
+            throw(ErrorException("Invalid boundaries for area"))
+        end
+
+        convert_parallelogram(width_cel, width_cml, 0., 0., ecal, peak_bnds)
+    elseif isa(area, DiagonalAreaWithOffset)
         width_cel = to_kev(area.width_cel, c.detpair.eres)
         width_cml = to_kev(area.width_cml, c.detpair.eres)
         offset_cel = to_kev(area.offset_cel, c.detpair.eres)
@@ -641,7 +662,7 @@ function integrate(c::CDBSpectrum, area::Area, in_corrected_peak::Bool)::Float64
         throw(ErrorException("Polygon vertices are out of matrix bounds"))
     end
 
-    vertices = [Vertex(v.x - left_col, v.y - upper_row) for v in vertices]
+    vertices = [Vertex(v.x - left_col + 1, v.y - upper_row + 1) for v in vertices]
 
     nrows_view = lower_row - upper_row + 1
     ncols_view = right_col - left_col + 1
@@ -733,7 +754,7 @@ function calc_lineshape_param!(
             )
 
             intersection.vertices = [
-                Vertex(v.x - left_col, v.y - upper_row)
+                Vertex(v.x - left_col + 1, v.y - upper_row + 1)
                 for v in intersection.vertices
             ]
 
@@ -782,9 +803,9 @@ end
 
 
 function default_analyze!(c::CDBSpectrum)
-    correct_ecal!(c, first_order)
+    correct_ecal!(c, EcalCorrOrder_First)
 
-    extract_peak!(c, (10., 10.), BGModelNone)
+    extract_peak!(c, (10., 10.), BGModel_None)
 
     for param in STD_LINESHAPE_PARAMS
         calc_lineshape_param!(c, param)
@@ -846,7 +867,7 @@ function project_diagonal(
         spectrum = [
             integrate(
                 c,
-                DiagonalArea(
+                DiagonalAreaWithOffset(
                     KeV(u_bin), width, KeV(from_index(ecal, i)), KeV(0)
                 ),
                 in_corrected_peak
@@ -872,7 +893,7 @@ function project_diagonal(
 
             spectrum[i] = integrate(
                 c,
-                DiagonalArea(
+                DiagonalAreaWithOffset(
                     KeV(width_cel), width, KeV(offset), KeV(0)
                 ),
                 in_corrected_peak

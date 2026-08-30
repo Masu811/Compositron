@@ -1,41 +1,32 @@
 using Format
 
-using ..Utils: TimingDetectorPair, min_spectrum, from_index
-using ..DBS: fit_gaussian
-using ..Constants: FWHM_OVER_SIGMA
+using ..Utils
+using ..DBS
+using ..Constants
+
+export PALSpectrum, fit!, fit_report
+
 
 mutable struct PALSpectrum
     spectrum::Vector{<:Unsigned}
     detpair::TimingDetectorPair
-    counts::Int64
-    dcounts::Float64
-    peak_bnds::Union{Nothing, Tuple{Int, Int}}
-    peak_center::Union{Nothing, Float64}
-    dpeak_center::Union{Nothing, Float64}
-    peak_fwhm::Union{Nothing, Float64}
-    dpeak_fwhm::Union{Nothing, Float64}
+    counts::UInt64
+    peak_params::Dict{String, SimpleFitParam}
     fit_result::Union{Nothing, FitResult}
 
     function PALSpectrum(
         spectrum::AbstractVector{<:Integer}, detpair::TimingDetectorPair
     )
-        counts = sum(spectrum)
-        dcounts = sqrt(counts)
-
         new(
             min_spectrum(spectrum),
             detpair,
-            counts,
-            dcounts,
-            nothing,
-            nothing,
-            nothing,
-            nothing,
-            nothing,
+            sum(spectrum),
+            Dict{String, SimpleFitParam}(),
             nothing,
         )
     end
 end
+
 
 function _get_peak_center!(p::PALSpectrum)::Float64
     max_idx = argmax(p.spectrum)
@@ -48,18 +39,21 @@ function _get_peak_center!(p::PALSpectrum)::Float64
     y = Float64.(p.spectrum[a:b])
     x = Float64.(a:b)
 
-    params = fit_gaussian(x, y, [maximum(y), peak_center_window, 100])
+    params = fit_gauss(x, y, [maximum(y), peak_center_window, 100])
 
+    peak_height = params["amp_1"]
     peak_center = params["x0_1"]
     peak_width = params["sig_1"]
 
-    p.peak_center = peak_center.val + a
-    p.dpeak_center = peak_center.err
-    p.peak_fwhm = peak_width.val * FWHM_OVER_SIGMA
-    p.dpeak_fwhm = peak_width.err * FWHM_OVER_SIGMA
+    p.peak_params["center_idx"] = peak_center
+    p.peak_params["height"] = peak_height
+    p.peak_params["fwhm"] = SimpleFitParam(
+        peak_width.val * FWHM_OVER_SIGMA, peak_width.err * FWHM_OVER_SIGMA,
+    )
 
     peak_center.val + a
 end
+
 
 function fit!(
     p::PALSpectrum,
@@ -67,7 +61,11 @@ function fit!(
     fit_start_idx::Integer,
     fit_end_idx::Integer,
 )
-    peak_center = something(p.peak_center, _get_peak_center!(p))
+    peak_center = if haskey(p.peak_params, "center_idx")
+        p.peak_params["center_idx"]
+    else
+        _get_peak_center!(p)
+    end
 
     y = Float64.(p.spectrum[fit_start_idx:fit_end_idx])
     x = fit_start_idx:fit_end_idx .|> i -> from_index(p.detpair.tcal, i)
@@ -76,6 +74,7 @@ function fit!(
         x, y, model, p.counts, from_index(p.detpair.tcal, peak_center)
     )
 end
+
 
 function _print_params(params::Vector{FitParam}, names::Vector{String})::String
     text = ""
@@ -225,6 +224,7 @@ function _print_params(params::Vector{FitParam}, names::Vector{String})::String
 
     text
 end
+
 
 function fit_report(p::PALSpectrum)
     if isnothing(p.fit_result)

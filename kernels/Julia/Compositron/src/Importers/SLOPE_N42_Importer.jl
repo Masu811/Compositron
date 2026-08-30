@@ -2,10 +2,14 @@ using DataStructures: OrderedDict
 
 import LightXML as xml
 
-using ...DBS: DBSpectrum
-using ...CDBS: CDBSpectrum
-using ...Utils: min_spectrum, min_spectrum2d, LinearCalibration, EnergyDetector, EnergyDetectorPair
-using ..Core: Measurement
+using ...DBS
+using ...CDBS
+using ...Utils
+using ..Core
+
+
+export import_slope_n42
+
 
 function add_version!(
     node::xml.XMLElement,
@@ -29,6 +33,7 @@ function add_version!(
     metadata["Instrument $component version"] = version
 end
 
+
 function gobble_hardware!(
     hardware_node::xml.XMLElement,
     hardware::Dict{String, xml.XMLElement},
@@ -42,6 +47,7 @@ function gobble_hardware!(
         end
     end
 end
+
 
 function gobble_instrument_information!(
     info::xml.XMLElement,
@@ -63,6 +69,7 @@ function gobble_instrument_information!(
     end
 end
 
+
 function gobble_metadata!(
     parent::xml.XMLElement, metadata::Dict{String, String}
 )
@@ -70,6 +77,7 @@ function gobble_metadata!(
         metadata[xml.name(node)] = xml.content(node)
     end
 end
+
 
 function check_exported(creator_node::xml.XMLElement)
     xml.content(creator_node) != "STACS" && return
@@ -79,6 +87,7 @@ function check_exported(creator_node::xml.XMLElement)
         "Imported data has been created with STACS and may have been altered"
     )
 end
+
 
 function sort_root_children!(
     root::xml.XMLElement,
@@ -113,6 +122,7 @@ function sort_root_children!(
         end
     end
 end
+
 
 function import_hardware_readout!(
     readout_node::xml.XMLElement,
@@ -168,6 +178,7 @@ function import_hardware_readout!(
     metadata["$(hardware_name):Is Value"] = is_value
 end
 
+
 function get_or_parse_detname!(
     det_id::String,
     detectors::Dict{String, xml.XMLElement},
@@ -200,6 +211,7 @@ function get_or_parse_detname!(
 
     detname
 end
+
 
 function get_or_parse_ecal!(
     ecal_id::String,
@@ -248,6 +260,7 @@ function get_or_parse_ecal!(
     ecal
 end
 
+
 function parse_spectrum(spectrum_node::xml.XMLElement)::Vector{<:Unsigned}
     channel_data_node = xml.find_element(spectrum_node, "ChannelData")
     if isnothing(channel_data_node) || xml.content(channel_data_node) == ""
@@ -264,6 +277,7 @@ function parse_spectrum(spectrum_node::xml.XMLElement)::Vector{<:Unsigned}
 
     min_spectrum(spectrum)
 end
+
 
 function import_dbspectrum!(
     spectrum_node::xml.XMLElement,
@@ -302,6 +316,7 @@ function import_dbspectrum!(
     m.dbs[detname] = DBSpectrum(spectrum, detector)
 end
 
+
 function parse_detpair(detpair_node::xml.XMLElement)::String
     name_node = xml.find_element(detpair_node, "RadDetectorName")
     if isnothing(name_node) || xml.content(name_node) == ""
@@ -312,6 +327,7 @@ function parse_detpair(detpair_node::xml.XMLElement)::String
     xml.content(name_node)
 end
 
+
 function parse_window(params::xml.XMLElement, param::String)::Int
     param_node = xml.find_element(params, param)
 
@@ -321,6 +337,7 @@ function parse_window(params::xml.XMLElement, param::String)::Int
 
     parse(Int, xml.content(param_node))
 end
+
 
 function get_window(
     detpair_node::xml.XMLElement
@@ -338,6 +355,7 @@ function get_window(
 
     ((offset_x, offset_x + dim_x), (offset_y, offset_y + dim_y))
 end
+
 
 function get_detector!(
     det_element_name::String,
@@ -371,6 +389,7 @@ function get_detector!(
     end
 end
 
+
 function get_or_parse_c_dets!(
     detpair_node::xml.XMLElement,
     detectors::Dict{String, xml.XMLElement},
@@ -385,6 +404,7 @@ function get_or_parse_c_dets!(
         ),
     )
 end
+
 
 function parse_cdbspectrum(
     spectrum_node::xml.XMLElement,
@@ -402,6 +422,7 @@ function parse_cdbspectrum(
 
     import_png(joinpath(directory, png_filename))
 end
+
 
 function import_cdbspectrum!(
     spectrum_node::xml.XMLElement,
@@ -437,15 +458,34 @@ function import_cdbspectrum!(
 
     window = get_window(detpair_node)
 
-    dets[1].ecal.offset += window[1][1] * dets[1].ecal.scale
-    dets[2].ecal.offset += window[2][1] * dets[2].ecal.scale
-
     spectrum = parse_cdbspectrum(spectrum_node, path)
 
-    detpair = EnergyDetectorPair(detpair_name, dets[1], dets[2], nothing)
+    detpair = EnergyDetectorPair(
+        detpair_name,
+        EnergyDetector(
+            dets[1].name,
+            LinearCalibration(
+                dets[1].ecal.offset + window[1][1] * dets[1].ecal.scale,
+                dets[1].ecal.scale
+            ),
+            nothing,
+            nothing
+        ),
+        EnergyDetector(
+            dets[2].name,
+            LinearCalibration(
+                dets[2].ecal.offset + window[2][1] * dets[2].ecal.scale,
+                dets[2].ecal.scale
+            ),
+            nothing,
+            nothing
+        ),
+        nothing
+    )
 
     m.cdbs[detpair_name] = CDBSpectrum(spectrum, detpair)
 end
+
 
 function sort_meas_children!(
     m::Measurement,
@@ -493,6 +533,7 @@ function sort_meas_children!(
         )
     end
 end
+
 
 function import_slope_n42(filename::String)::Measurement
     doc = xml.parse_file(filename)

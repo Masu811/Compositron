@@ -45,6 +45,7 @@ use crate::dbs::DBSpectrum;
 // - use 2D fit results of one spectrum as init for the others
 // - couple ecal to DBSpectra, to avoid multiple ecal corrections
 
+
 #[derive(Debug, Error)]
 pub enum AnalysisError {
     #[error(
@@ -92,10 +93,12 @@ pub enum AnalysisError {
     ProjectionConversionError,
 }
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BackgroundModel {
     None,
 }
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum Axis {
@@ -103,9 +106,14 @@ pub enum Axis {
     SecondDetector,
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub enum Area {
     Diagonal {
+        width_cel: Unit,
+        width_cml: Unit,
+    },
+    DiagonalWithOffset {
         width_cel: Unit,
         width_cml: Unit,
         offset_cel: Unit,
@@ -121,11 +129,13 @@ pub enum Area {
     }
 }
 
+
 #[derive(Debug)]
 pub enum ProjectionBins<'a> {
     Linear(Unit),
     CustomZeroCentered(&'a [Unit]),
 }
+
 
 #[derive(Debug, Clone)]
 pub struct LineshapeParam {
@@ -136,6 +146,7 @@ pub struct LineshapeParam {
     pub in_corrected_peak: bool,
 }
 
+
 #[derive(Debug)]
 pub struct LineshapeParamDefinition<'a> {
     pub name: &'a str,
@@ -144,6 +155,7 @@ pub struct LineshapeParamDefinition<'a> {
     pub in_corrected_peak: bool,
 }
 
+
 pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "S",
@@ -151,16 +163,12 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
             Area::Diagonal {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::Eres(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         denom: &[
             Area::Diagonal {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         in_corrected_peak: true,
@@ -168,13 +176,13 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "W",
         num: &[
-            Area::Diagonal {
+            Area::DiagonalWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(3.),
                 offset_cml: Unit::KeV(0.),
             },
-            Area::Diagonal {
+            Area::DiagonalWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(-3.),
@@ -185,8 +193,6 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
             Area::Diagonal {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         in_corrected_peak: true,
@@ -197,8 +203,6 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
             Area::Diagonal {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
-                offset_cel: Unit::KeV(0.),
-                offset_cml: Unit::KeV(0.),
             },
         ],
         denom: &[
@@ -211,25 +215,30 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     },
 ];
 
+
 #[inline]
 fn ij_to_xy(i: f64, ecal: LinearCalibration) -> f64 {
     ecal.from_index_f64(i)
 }
+
 
 #[inline]
 fn xy_to_ij(x: f64, ecal: LinearCalibration) -> f64 {
     ecal.to_index_f64(x)
 }
 
+
 #[inline]
 fn xy_to_uv(x: f64, y: f64) -> (f64, f64) {
     (0.5 * (x - y), 0.5 * (x + y) - M_E_KEV)
 }
 
+
 #[inline]
 fn uv_to_xy(u: f64, v: f64) -> (f64, f64) {
     (M_E_KEV + u + v, M_E_KEV - u + v)
 }
+
 
 #[inline]
 fn ij_to_uv(
@@ -239,6 +248,7 @@ fn ij_to_uv(
     xy_to_uv(x, y)
 }
 
+
 #[inline]
 fn uv_to_ij(
     u: f64, v: f64, ecal: (LinearCalibration, LinearCalibration)
@@ -246,6 +256,7 @@ fn uv_to_ij(
     let (x, y) = uv_to_xy(u, v);
     (xy_to_ij(y, ecal.0), xy_to_ij(x, ecal.1))
 }
+
 
 fn convert_rectangle(
     first_det_bnds: (f64, f64),
@@ -260,6 +271,7 @@ fn convert_rectangle(
         j_max: ecal.1.to_index_f64(second_det_bnds.1) - peak_bnds.1.0 as f64,
     }
 }
+
 
 fn convert_parallelogram(
     width_cel: f64,
@@ -286,6 +298,7 @@ fn convert_parallelogram(
     }
 }
 
+
 fn convert_ellipse(
     radius_cel: f64,
     radius_cml: f64,
@@ -307,10 +320,12 @@ fn convert_ellipse(
     }
 }
 
+
 pub struct FoldedProjection {
     pub energies: DVector<f64>,
     pub spectrum: DVector<f64>,
 }
+
 
 pub struct Projection {
     pub spectrum: DVector<f64>,
@@ -318,8 +333,8 @@ pub struct Projection {
     pub ecal: Option<LinearCalibration>,
     pub bins: Option<DVector<f64>>,
     pub counts: f64,
-    pub dcounts: f64,
 }
+
 
 impl Projection {
     pub fn new(
@@ -329,7 +344,6 @@ impl Projection {
         bins: Option<DVector<f64>>,
     ) -> Self {
         let counts = spectrum.iter().sum::<f64>();
-        let dcounts = counts.sqrt();
 
         Projection {
             spectrum,
@@ -337,9 +351,9 @@ impl Projection {
             ecal,
             bins,
             counts,
-            dcounts,
         }
     }
+
 
     pub fn get_energies(&self) -> Result<DVector<f64>, AnalysisError> {
         if let Some(ecal) = self.ecal {
@@ -356,6 +370,7 @@ impl Projection {
             Err(AnalysisError::FoldError)
         }
     }
+
 
     pub fn fold(&self) -> Result<FoldedProjection, AnalysisError> {
         if let Some(ecal) = self.ecal
@@ -436,6 +451,7 @@ impl Projection {
         return Err(AnalysisError::FoldError);
     }
 
+
     pub fn to_dbspectrum(&self) -> Result<DBSpectrum, AnalysisError> {
         let Some(ecal) = self.ecal else {
             return Err(AnalysisError::ProjectionConversionError);
@@ -455,6 +471,7 @@ impl Projection {
     }
 }
 
+
 pub struct CDBSpectrum {
     pub spectrum: Spectrum2D,
     pub detpair: EnergyDetectorPair,
@@ -467,6 +484,7 @@ pub struct CDBSpectrum {
     pub peak_params: HashMap<&'static str, fitting::SimpleFitParam>,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
+
 
 impl CDBSpectrum {
     pub fn new(
@@ -489,17 +507,6 @@ impl CDBSpectrum {
         }
     }
 
-    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
-        self.correct_ecal(EcalCorrectionOrder::First)?;
-
-        self.extract_peak((10., 10.), BackgroundModel::None);
-
-        for param in STD_LINESHAPE_PARAMS {
-            self.calc_lineshape_param(param)?;
-        }
-
-        Ok(())
-    }
 
     pub fn project_axes(&self, onto_axis: Axis) -> Projection {
         match onto_axis {
@@ -538,6 +545,7 @@ impl CDBSpectrum {
         }
     }
 
+
     fn fit_2d_peak(
         &mut self, bg_model: BackgroundModel
     ) -> Result<(), AnalysisError> {
@@ -575,18 +583,19 @@ impl CDBSpectrum {
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                     .unwrap();
 
-                let x0 = idx % peak.ncols() as usize + peak_bnds.1.0;
-                let y0 = idx / peak.ncols() as usize + peak_bnds.0.0;
+                let i0 = idx % peak.nrows() as usize + peak_bnds.0.0;
+                let j0 = idx / peak.nrows() as usize + peak_bnds.1.0;
 
-                let y0 = ecal_1.from_index(y0);
-                let x0 = ecal_2.from_index(x0);
+                let y0 = ecal_1.from_index(i0);
+                let x0 = ecal_2.from_index(j0);
 
-                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 1., 2., -0.78])?
+                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, -0.78])?
             },
         };
 
         Ok(())
     }
+
 
     fn subtract_bg(&mut self, bg_model: BackgroundModel) {
         if bg_model == BackgroundModel::None {
@@ -597,6 +606,7 @@ impl CDBSpectrum {
             BackgroundModel::None => unreachable!(),
         }
     }
+
 
     pub fn extract_peak(
         &mut self,
@@ -640,6 +650,7 @@ impl CDBSpectrum {
         self.dpeak_counts = Some(peak_counts.sqrt());
     }
 
+
     pub fn correct_ecal(
         &mut self, order: EcalCorrectionOrder,
     ) -> Result<(), AnalysisError> {
@@ -681,6 +692,7 @@ impl CDBSpectrum {
         Ok(())
     }
 
+
     fn get_max_projection_length(
         &self,
         v: f64,
@@ -715,6 +727,7 @@ impl CDBSpectrum {
             .min_by(|x, y| x.total_cmp(y))
     }
 
+
     fn calculate_polygon_boundaries(
         &self,
         area: Area,
@@ -722,7 +735,34 @@ impl CDBSpectrum {
         peak_bnds: ((usize, usize), (usize, usize)),
     ) -> Result<Polygon, AnalysisError> {
         match area {
-            Area::Diagonal { width_cel, width_cml, offset_cel, offset_cml } => {
+            Area::Diagonal { width_cel, width_cml } => {
+                let (
+                    Some(mut width_cel), Some(width_cml)
+                ) = (
+                    width_cel.to_kev(self.detpair.eres),
+                    width_cml.to_kev(self.detpair.eres),
+                ) else {
+                    return Err(AnalysisError::MissingEnergyResolution);
+                };
+
+                if width_cel.is_infinite() {
+                    width_cel = match self.get_max_projection_length(
+                        0.5 * width_cml, ecal, peak_bnds
+                    ) {
+                        Some(x) => 2. * x,
+                        None => return Err(AnalysisError::InvalidAreaBounds),
+                    };
+                }
+
+                if !width_cel.is_finite() || !width_cml.is_finite() {
+                    return Err(AnalysisError::InvalidAreaBounds);
+                }
+
+                Ok(Polygon { vertices: convert_parallelogram(
+                    width_cel, width_cml, 0., 0., ecal, peak_bnds,
+                ).to_vertices() })
+            },
+            Area::DiagonalWithOffset { width_cel, width_cml, offset_cel, offset_cml } => {
                 let (
                     Some(mut width_cel), Some(width_cml),
                     Some(offset_cel), Some(offset_cml)
@@ -797,6 +837,7 @@ impl CDBSpectrum {
         }
     }
 
+
     fn blend_and_sum(
         &mut self,
         weights: DMatrix<u8>,
@@ -835,6 +876,7 @@ impl CDBSpectrum {
 
         Ok(integral)
     }
+
 
     pub fn integrate(
         &mut self,
@@ -877,9 +919,9 @@ impl CDBSpectrum {
 
         polygon.vertices
             .iter_mut()
-            .for_each(|v| *v = Vertex(
-                v.0 - left_col as f64, v.1 - upper_row as f64
-            ));
+            .for_each(|v| *v = Vertex {
+                x: v.x - left_col as f64, y: v.y - upper_row as f64
+            });
 
         let nrows_view = lower_row - upper_row + 1;
         let ncols_view = right_col - left_col + 1;
@@ -895,6 +937,7 @@ impl CDBSpectrum {
             in_corrected_peak,
         )
     }
+
 
     pub fn calc_lineshape_param(
         &mut self,
@@ -966,7 +1009,7 @@ impl CDBSpectrum {
                     num_area, denom_area
                 )?;
 
-                if intersection.vertices.len() == 0 { continue; }
+                if intersection.vertices.len() == 0 { continue; };
 
                 let (
                     left_col, right_col, lower_row, upper_row
@@ -980,9 +1023,9 @@ impl CDBSpectrum {
 
                 intersection.vertices
                     .iter_mut()
-                    .for_each(|v| *v = Vertex(
-                        v.0 - left_col as f64, v.1 - upper_row as f64
-                    ));
+                    .for_each(|v| *v = Vertex {
+                        x: v.x - left_col as f64, y: v.y - upper_row as f64
+                    });
 
                 let nrows_view = lower_row - upper_row + 1;
                 let ncols_view = right_col - left_col + 1;
@@ -1025,6 +1068,20 @@ impl CDBSpectrum {
 
         Ok(self.lineshape_params.get(definition.name).unwrap())
     }
+
+
+    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
+        self.correct_ecal(EcalCorrectionOrder::First)?;
+
+        self.extract_peak((10., 10.), BackgroundModel::None);
+
+        for param in STD_LINESHAPE_PARAMS {
+            self.calc_lineshape_param(param)?;
+        }
+
+        Ok(())
+    }
+
 
     pub fn project_digonal(
         &mut self,
@@ -1082,7 +1139,7 @@ impl CDBSpectrum {
 
                 let spectrum = DVector::from_vec((0..num_bins)
                     .map(|i| self.integrate(
-                        Area::Diagonal {
+                        Area::DiagonalWithOffset {
                             width_cel: Unit::KeV(u_bin),
                             width_cml: width,
                             offset_cel: Unit::KeV(ecal.from_index(i)),
@@ -1123,7 +1180,7 @@ impl CDBSpectrum {
                     let offset = 0.5 * (left_edge + right_edge);
 
                     spectrum[i] = self.integrate(
-                        Area::Diagonal {
+                        Area::DiagonalWithOffset {
                             width_cel: Unit::KeV(width_cel),
                             width_cml: width,
                             offset_cel: Unit::KeV(offset),

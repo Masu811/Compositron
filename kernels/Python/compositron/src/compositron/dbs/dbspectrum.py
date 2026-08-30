@@ -12,7 +12,7 @@ from ..core.utils import (
     KeV
 )
 from .fitting import (
-    erf_linear_background, fit_gaussian, fit_erf_linear_1_gauss,
+    erf_linear_background, fit_gauss, fit_erf_linear_1_gauss,
     fit_erf_linear_2_gauss, fit_erf_linear_3_gauss,
 )
 
@@ -54,11 +54,11 @@ class PeakAreaWithOffset:
 
 @dataclass
 class SpectrumArea:
-    left_bnd: float
-    right_bnd: float
+    left_bnd_kev: float
+    right_bnd_kev: float
 
     def to_bnds_kev(self, _: None | float) -> tuple[float, float]:
-        return (self.left_bnd, self.right_bnd)
+        return (self.left_bnd_kev, self.right_bnd_kev)
 
 
 Area = PeakArea | PeakAreaWithOffset | SpectrumArea
@@ -84,7 +84,7 @@ class LineshapeParamDefinition:
 STD_LINESHAPE_PARAMS: list[LineshapeParamDefinition] = [
     LineshapeParamDefinition(
         name = "S",
-        num = [PeakArea(KeV(1))],
+        num = [PeakArea(KeV(2))],
         denom = [PeakArea(KeV(20))],
         in_corrected_peak = True,
     ),
@@ -117,74 +117,68 @@ class DBSpectrum:
     spectrum: Spectrum
     detector: EnergyDetector
     counts: int
-    dcounts: float
     peak: None | npt.NDArray[np.floating]
-    peak_bnds: None | tuple[int, int]
+    peak_bnd_idcs: None | tuple[int, int]
     peak_counts: None | float
-    dpeak_counts: None | float
     peak_params: dict[str, SimpleFitParam]
     lineshape_params: dict[str, LineshapeParam]
+
 
     def __init__(
         self, spectrum: npt.ArrayLike, detector: EnergyDetector,
     ) -> None:
-        counts = np.sum(spectrum)
-        dcounts = np.sqrt(counts)
-
         self.spectrum = to_min_type_spectrum(spectrum)
         self.detector = detector
-        self.counts = counts
-        self.dcounts = dcounts
+        self.counts = np.sum(spectrum)
         self.peak = None
-        self.peak_bnds = None
+        self.peak_bnd_idcs = None
         self.peak_counts = None
         self.dpeak_counts = None
         self.peak_params = {}
         self.lineshape_params = {}
 
-    def default_analyze(self) -> None:
-        self.correct_ecal(EcalCorrectionOrder.FIRST)
-
-        self.extract_peak(30, PeakModel.ERFLINEAR1GAUSS)
-
-        for param in STD_LINESHAPE_PARAMS:
-            self.calc_lineshape_param(param, BinIntegrationScheme.CONST)
-
-        self.peak = None
-        self.peak_bnds = None
 
     def _get_peak_energies(self) -> npt.NDArray[np.float64]:
         ecal = self.detector.corrected_ecal or self.detector.ecal
 
-        assert (bnds := self.peak_bnds) is not None
+        assert (bnds := self.peak_bnd_idcs) is not None
 
-        return (
-            np.arange(bnds[0], bnds[1], dtype=np.float64) * ecal.scale
-            + ecal.offset
-        )
+        return ecal.from_index(np.arange(*bnds))
+
 
     def _fit_peak(self, peak_model: PeakModel) -> None:
         x = self._get_peak_energies()
         assert (y := self.peak) is not None
 
-        m = np.max(y)
+        max_val = np.max(y)
+
+        if peak_model == PeakModel.GAUSS:
+            self.peak_params = fit_gauss(x, y, [max_val, 511, 1])
+            return
+
+        min_val = np.min(y)
+        erf_amp = 0.5 * (y[0] - y[-1])
 
         match peak_model:
-            case PeakModel.GAUSS:
-                self.peak_params = fit_gaussian(x, y, [m, 511, 1])
             case PeakModel.ERFLINEAR1GAUSS:
                 self.peak_params = fit_erf_linear_1_gauss(
-                    x, y, [m, 511, 1, -10, 0, 0]
+                    x, y, [max_val, 511, 1, erf_amp, 0, min_val]
                 )
             case PeakModel.ERFLINEAR2GAUSS:
                 self.peak_params = fit_erf_linear_2_gauss(
-                    x, y, [m / 2, 511, 1, m / 2, 511, 1.5, -10, 0, 0]
+                    x, y, [
+                        max_val / 2, 511, 1, max_val / 2, 511, 1.5,
+                        erf_amp, 0, min_val
+                    ]
                 )
             case PeakModel.ERFLINEAR3GAUSS:
                 self.peak_params = fit_erf_linear_3_gauss(
-                    x, y,
-                    [m / 3, 511, 1, m / 3, 511, 1.5, m / 3, 511, 2, -10, 0, 0]
+                    x, y, [
+                        max_val / 3, 511, 1, max_val / 3, 511, 1.5,
+                        max_val / 3, 511, 2, erf_amp, 0, min_val
+                    ]
                 )
+
 
     def _subtract_bg(self, peak_model: PeakModel) -> None:
         if peak_model == PeakModel.GAUSS:
@@ -204,25 +198,26 @@ class DBSpectrum:
             self.peak_params["const"].val,
         )
 
-        y -= corr
+        self.peak = np.maximum(y - corr, 0)
 
-    def extract_peak(
-        self, peak_width: float, peak_model: PeakModel
-    ) -> npt.NDArray[np.float64]:
+
+    def extract_peak(self, peak_width: float, peak_model: PeakModel) -> None:
         ecal = self.detector.corrected_ecal or self.detector.ecal
 
         left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2)
         right_peak_idx = ecal.to_index_rounded(M_E_KEV + peak_width / 2)
 
-        self.peak_bnds = (left_peak_idx, right_peak_idx)
+        if right_peak_idx >= len(self.spectrum) or left_peak_idx < 0:
+            raise ValueError("Attempting to extract peak larger than spectrum")
 
         self.peak = (
             self.spectrum[left_peak_idx:right_peak_idx].astype(np.float64)
         )
 
+        self.peak_bnd_idcs = (left_peak_idx, right_peak_idx)
+
         self._subtract_bg(peak_model)
 
-        return self.peak
 
     def correct_ecal(self, order: EcalCorrectionOrder) -> None:
         if order == EcalCorrectionOrder.NONE:
@@ -244,6 +239,7 @@ class DBSpectrum:
                 ecal.scale *= (M_E_KEV - ecal.offset) / (c - ecal.offset);
 
         self.detector.corrected_ecal = ecal
+
 
     @staticmethod
     def _integrate_const(
@@ -269,6 +265,7 @@ class DBSpectrum:
         counts -= highest_ch_counts * (x2 - upper_ch_bnd)
 
         return counts
+
 
     @staticmethod
     def _integrate_linear(
@@ -309,6 +306,7 @@ class DBSpectrum:
 
         return counts
 
+
     @staticmethod
     def _integrate_generic(
         spectrum: npt.NDArray,
@@ -341,6 +339,7 @@ class DBSpectrum:
                     spectrum, lower_ch_bnd, upper_ch_bnd
                 )
 
+
     def integrate(
         self,
         area: Area,
@@ -348,12 +347,6 @@ class DBSpectrum:
         bin_integration_scheme: BinIntegrationScheme,
     ) -> float:
         lower_bnd, upper_bnd = area.to_bnds_kev(self.detector.eres)
-
-        if in_corrected_peak and self.peak is None:
-            raise RuntimeError(
-                "Attempting analysis on background subtracted peak, but no "
-                "subtraction has been performed yet"
-            )
 
         if lower_bnd >= upper_bnd:
             raise ValueError(
@@ -367,13 +360,19 @@ class DBSpectrum:
         upper_ch_bnd = ecal.to_index_float(upper_bnd)
 
         if in_corrected_peak:
-            assert (peak_bnds := self.peak_bnds) is not None
+            if self.peak is None:
+                raise RuntimeError(
+                    "Attempting analysis on background subtracted peak, but no "
+                    "subtraction has been performed yet"
+                )
+
+            assert (peak_bnds := self.peak_bnd_idcs) is not None
+            assert (peak := self.peak) is not None
+
             lower_peak_bnd, _ = peak_bnds
 
             lower_ch_bnd -= lower_peak_bnd
             upper_ch_bnd -= lower_peak_bnd
-
-            assert (peak := self.peak) is not None
 
             return DBSpectrum._integrate_generic(
                 peak, lower_ch_bnd, upper_ch_bnd, bin_integration_scheme,
@@ -385,6 +384,7 @@ class DBSpectrum:
                 upper_ch_bnd,
                 bin_integration_scheme,
             )
+
 
     def _get_area_bnds(self, areas: list[Area]) -> list[tuple[float, float]]:
         bnds = [area.to_bnds_kev(self.detector.eres) for area in areas]
@@ -398,6 +398,7 @@ class DBSpectrum:
 
         return bnds
 
+
     def calc_lineshape_param(
         self,
         definition: LineshapeParamDefinition,
@@ -406,27 +407,23 @@ class DBSpectrum:
         num_bnds = self._get_area_bnds(definition.num)
         denom_bnds = self._get_area_bnds(definition.denom)
 
-        num = sum([
-            self.integrate(
-                area, definition.in_corrected_peak, bin_integration_scheme
-            ) for area in definition.num
-        ])
-        denom = sum([
-            self.integrate(
-                area, definition.in_corrected_peak, bin_integration_scheme
-            ) for area in definition.denom
-        ])
+        num = sum(self.integrate(
+            area, definition.in_corrected_peak, bin_integration_scheme
+        ) for area in definition.num)
+        denom = sum(self.integrate(
+            area, definition.in_corrected_peak, bin_integration_scheme
+        ) for area in definition.denom)
 
         common = 0.
 
         for num_bnd in num_bnds:
             for denom_bnd in denom_bnds:
-                left_bnd = max(num_bnd[0], denom_bnd[0])
-                right_bnd = min(num_bnd[1], denom_bnd[1])
+                left_bnd_kev = max(num_bnd[0], denom_bnd[0])
+                right_bnd_kev = min(num_bnd[1], denom_bnd[1])
 
-                if left_bnd < right_bnd:
+                if left_bnd_kev < right_bnd_kev:
                     common += self.integrate(
-                        SpectrumArea(left_bnd, right_bnd),
+                        SpectrumArea(left_bnd_kev, right_bnd_kev),
                         definition.in_corrected_peak,
                         bin_integration_scheme,
                     )
@@ -449,3 +446,15 @@ class DBSpectrum:
         self.lineshape_params[definition.name] = ls_param
 
         return ls_param
+
+
+    def default_analyze(self) -> None:
+        self.correct_ecal(EcalCorrectionOrder.FIRST)
+
+        self.extract_peak(30, PeakModel.ERFLINEAR2GAUSS)
+
+        for param in STD_LINESHAPE_PARAMS:
+            self.calc_lineshape_param(param, BinIntegrationScheme.CONST)
+
+        self.peak = None
+        self.peak_bnd_idcs = None

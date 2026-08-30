@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use statrs::function::erf::erfc;
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 
-use crate::constants::{FWHM_OVER_SIGMA, SQRT_2, SQRT_2PI};
+use crate::constants::{FWHM_OVER_SIGMA, SQRT_2, SQRT_2_PI};
 use crate::pals::model::LifetimeModel;
 use crate::core::fitting::{FitParam, FitStatus, LMFitError};
 
@@ -167,10 +167,6 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
 
         let r = (&self.y - f).component_mul(&self.w);
 
-        if r.iter().any(|x| x.is_nan()) {
-            // TODO: log
-        }
-
         Some(r)
     }
 
@@ -217,7 +213,7 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
                 let sig_over_tau_sqrt_2 = sig / (tau * SQRT_2);
                 let sig_over_tau_sqrt_2_sq = sig_over_tau_sqrt_2.powi(2);
                 let one_over_tau = 1. / tau;
-                let one_over_tau_sqrt_2_pi = 1. / (tau * SQRT_2PI);
+                let one_over_tau_sqrt_2_pi = 1. / (tau * SQRT_2_PI);
                 let one_over_sig_sqrt_2 =  1. / (sig * SQRT_2);
 
                 let tt = self.x.map(|t_i| t_i - (t0 + r_t0));
@@ -363,10 +359,6 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
                     &(&self.w * self.diffs[i](self.p[i], self.params[i]))
                 )
             ));
-
-            if j.iter().any(|x| x.is_nan()) {
-                // TODO: log
-            }
         }
 
         Some(j)

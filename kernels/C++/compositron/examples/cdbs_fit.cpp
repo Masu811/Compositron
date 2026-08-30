@@ -22,22 +22,8 @@ int main() {
 
     compositron::cdbs::LineshapeParamDefinition ls_param {
         "S",
-        {
-            compositron::cdbs::DiagonalArea(
-                Unit(2, KEV),
-                Unit(1, KEV),
-                Unit(0, KEV),
-                Unit(0, KEV)
-            )
-        },
-        {
-            compositron::cdbs::DiagonalArea(
-                Unit(10, KEV),
-                Unit(1, KEV),
-                Unit(0, KEV),
-                Unit(0, KEV)
-            )
-        },
+        {compositron::cdbs::DiagonalArea(Unit(2, KEV), Unit(1, KEV))},
+        {compositron::cdbs::DiagonalArea(Unit(10, KEV), Unit(1, KEV))},
         false
     };
 
@@ -47,7 +33,7 @@ int main() {
 
     auto s = c.lineshape_params.at("S");
 
-    std::cout << "Calculated S paramter: " << s.val << " +/- " << s.err << std::endl;
+    std::cout << "Calculated S parameter: " << s.val << " +/- " << s.err << std::endl;
     std::cout << "Calculation duration: "
               << std::chrono::duration<double, std::micro>(stop - start).count()
               << " µs" << std::endl;
@@ -56,10 +42,7 @@ int main() {
 
     start = std::chrono::steady_clock::now();
     auto p = c.project_diagonal(
-        Unit(0.1, KEV),
-        Unit(2, KEV),
-        Unit(10, KEV),
-        false
+        Unit(0.1, KEV), Unit(2, KEV), Unit(10, KEV), false
     );
     stop = std::chrono::steady_clock::now();
 

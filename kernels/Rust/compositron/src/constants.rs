@@ -9,4 +9,4 @@ pub const SQRT_TWO_HALVES: f64 = 2. * std::f64::consts::FRAC_1_SQRT_2;
 pub use std::f64::consts::PI;
 pub use std::f64::consts::FRAC_PI_4 as PI_OVER_FOUR;
 pub const TWO_OVER_SQRT_PI: f64 = 1.1283791670955126;
-pub use statrs::consts::SQRT_2PI;
+pub use statrs::consts::SQRT_2PI as SQRT_2_PI;

@@ -13,6 +13,7 @@ struct FitResult {
     model::LifetimeModel model;
     ceres::Solver::Summary summary;
     ceres::TerminationType fit_status;
+    size_t n_dpoints;
     int n_eval;
     std::optional<double> red_chi_2;
     std::optional<Eigen::MatrixXd> cov;

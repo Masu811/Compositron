@@ -8,11 +8,12 @@ use thiserror::Error;
 
 use crate::constants::M_E_KEV;
 use crate::core::utils::{
-    spectrum_match, EnergyDetector, LinearCalibration, LossyIntoF64, Spectrum,
-    EcalCorrectionOrder, Unit
+    spectrum_match, EnergyDetector, LossyIntoF64, Spectrum,EcalCorrectionOrder,
+    Unit
 };
 use crate::core::fitting::{self, VarproFitError};
 use crate::dbs::fitting::*;
+
 
 #[derive(Debug, Error)]
 pub enum AnalysisError {
@@ -46,6 +47,7 @@ pub enum AnalysisError {
     MissingEnergyResolution,
 }
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PeakModel {
     Gauss,
@@ -54,11 +56,13 @@ pub enum PeakModel {
     ErfLinear3Gauss,
 }
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinIntegrationScheme {
     Const,
     Linear,
 }
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum Area {
@@ -70,10 +74,11 @@ pub enum Area {
         offset: Unit,
     },
     Spectrum {
-        left_bnd: f64,
-        right_bnd: f64,
+        left_bnd_kev: f64,
+        right_bnd_kev: f64,
     },
 }
+
 
 impl Area {
     pub fn to_bnds_kev(&self, eres: Option<f64>) -> Option<(f64, f64)> {
@@ -90,12 +95,13 @@ impl Area {
                     M_E_KEV + width_kev / 2. + offset_kev
                 ))
             },
-            Area::Spectrum { left_bnd, right_bnd } => {
-                Some((*left_bnd, *right_bnd))
+            Area::Spectrum { left_bnd_kev, right_bnd_kev } => {
+                Some((*left_bnd_kev, *right_bnd_kev))
             },
         }
     }
 }
+
 
 #[derive(Debug, Clone)]
 pub struct LineshapeParam {
@@ -106,6 +112,7 @@ pub struct LineshapeParam {
     pub in_corrected_peak: bool,
 }
 
+
 #[derive(Debug)]
 pub struct LineshapeParamDefinition<'a> {
     pub name: &'a str,
@@ -114,10 +121,11 @@ pub struct LineshapeParamDefinition<'a> {
     pub in_corrected_peak: bool,
 }
 
+
 pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
     LineshapeParamDefinition {
         name: "S",
-        num: &[Area::Peak { width: Unit::KeV(1.) }],
+        num: &[Area::Peak { width: Unit::KeV(2.) }],
         denom: &[Area::Peak { width: Unit::KeV(20.) }],
         in_corrected_peak: true,
     },
@@ -132,32 +140,32 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
     },
     LineshapeParamDefinition {
         name: "V/P",
-        num: &[Area::Spectrum { left_bnd: 400., right_bnd: 500. }],
-        denom: &[Area::Spectrum { left_bnd: 501., right_bnd: 521. }],
+        num: &[Area::Spectrum { left_bnd_kev: 400., right_bnd_kev: 500. }],
+        denom: &[Area::Spectrum { left_bnd_kev: 501., right_bnd_kev: 521. }],
         in_corrected_peak: false,
     },
     LineshapeParamDefinition {
         name: "P/T",
-        num: &[Area::Spectrum { left_bnd: 501., right_bnd: 521. }],
+        num: &[Area::Spectrum { left_bnd_kev: 501., right_bnd_kev: 521. }],
         denom: &[Area::Spectrum {
-            left_bnd: f64::NEG_INFINITY, right_bnd: f64::INFINITY
+            left_bnd_kev: f64::NEG_INFINITY, right_bnd_kev: f64::INFINITY
         }],
         in_corrected_peak: false,
     },
 ];
 
+
 pub struct DBSpectrum {
     pub spectrum: Spectrum,
     pub detector: EnergyDetector,
     pub counts: u64,
-    pub dcounts: f64,
     pub peak: Option<Vec<f64>>,
-    pub peak_bnds: Option<(usize, usize)>,
-    pub peak_counts: f64,
-    pub dpeak_counts: f64,
+    pub peak_bnd_idcs: Option<(usize, usize)>,
+    pub peak_counts: Option<f64>,
     pub peak_params: HashMap<&'static str, fitting::SimpleFitParam>,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
+
 
 impl DBSpectrum {
     pub fn new(
@@ -168,44 +176,27 @@ impl DBSpectrum {
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum()
         );
 
-        let dcounts = (counts as f64).sqrt();
-
         DBSpectrum {
             spectrum,
             detector,
             counts,
-            dcounts,
-            peak_counts: f64::NAN,
-            dpeak_counts: f64::NAN,
+            peak_counts: None,
             peak: None,
-            peak_bnds: None,
+            peak_bnd_idcs: None,
             peak_params: HashMap::new(),
             lineshape_params: HashMap::new(),
         }
     }
 
-    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
-        self.correct_ecal(EcalCorrectionOrder::First)?;
-
-        self.extract_peak(30., true, PeakModel::ErfLinear1Gauss)?;
-
-        for param in STD_LINESHAPE_PARAMS {
-            self.calc_lineshape_param(param, BinIntegrationScheme::Const)?;
-        }
-
-        self.peak = None;
-        self.peak_bnds = None;
-
-        Ok(())
-    }
 
     fn get_peak_energies(&self) -> Vec<f64> {
         let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
 
-        let bnds = self.peak_bnds.unwrap();
+        let bnds = self.peak_bnd_idcs.unwrap();
 
         (bnds.0..=bnds.1).map(|i| ecal.from_index(i)).collect::<Vec<f64>>()
     }
+
 
     fn fit_peak(
         &mut self, peak_model: PeakModel,
@@ -215,7 +206,7 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::Gauss => {
-                self.peak_params = fit_gaussian(&x, &y, vec![511., 1.])?;
+                self.peak_params = fit_gauss(&x, &y, vec![511., 1.])?;
             },
             PeakModel::ErfLinear1Gauss => {
                 self.peak_params = fit_erf_linear_1_gauss(&x, &y)?;
@@ -231,6 +222,7 @@ impl DBSpectrum {
         Ok(())
     }
 
+
     fn subtract_bg(
         &mut self, peak_model: PeakModel
     ) -> Result<(), AnalysisError> {
@@ -243,7 +235,7 @@ impl DBSpectrum {
         let x = self.get_peak_energies();
         let y = self.peak.as_mut().unwrap();
 
-        let corr = background(
+        let corr = erf_linear_background(
             &x,
             self.peak_params.get("erf_amp").unwrap().val,
             self.peak_params.get("x0_1").unwrap().val,
@@ -253,15 +245,16 @@ impl DBSpectrum {
         );
 
         for (s, bg) in y.iter_mut().zip(corr) {
-            *s = *s - bg;
+            *s = (*s - bg).max(0.);
         }
 
         Ok(())
     }
 
+
     pub fn extract_peak(
-        &mut self, peak_width: f64, bg_corr: bool, peak_model: PeakModel,
-    ) -> Result<&[f64], AnalysisError> {
+        &mut self, peak_width: f64, peak_model: PeakModel,
+    ) -> Result<(), AnalysisError> {
         let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
 
         let left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2.);
@@ -271,8 +264,6 @@ impl DBSpectrum {
             return Err(AnalysisError::OutOfBounds);
         }
 
-        self.peak_bnds = Some((left_peak_idx, right_peak_idx));
-
         self.peak = Some(spectrum_match!(
             &self.spectrum,
             arr => arr.rows(left_peak_idx, right_peak_idx - left_peak_idx + 1)
@@ -281,22 +272,23 @@ impl DBSpectrum {
                 .collect()
         ));
 
-        if bg_corr == true {
-            self.subtract_bg(peak_model)?;
-        }
+        self.peak_bnd_idcs = Some((left_peak_idx, right_peak_idx));
 
-        Ok(self.peak.as_ref().unwrap())
+        self.subtract_bg(peak_model)?;
+
+        Ok(())
     }
+
 
     pub fn correct_ecal(
         &mut self, order: EcalCorrectionOrder
-    ) -> Result<LinearCalibration, AnalysisError> {
+    ) -> Result<(), AnalysisError> {
         if order == EcalCorrectionOrder::None {
-            return Ok(self.detector.ecal);
+            return Ok(());
         }
 
         if self.peak == None {
-            self.extract_peak(20., false, PeakModel::Gauss)?;
+            self.extract_peak(20., PeakModel::Gauss)?;
         }
 
         self.fit_peak(PeakModel::Gauss)?;
@@ -317,8 +309,9 @@ impl DBSpectrum {
 
         self.detector.corrected_ecal = Some(ecal);
 
-        Ok(ecal)
+        Ok(())
     }
+
 
     fn integrate_const<T: LossyIntoF64>(
         spectrum: &[T],
@@ -327,9 +320,7 @@ impl DBSpectrum {
     ) -> f64 {
         let mut counts = 0.;
 
-        // index of lowest channel still inside ROI
         let lowest_ch = lower_ch_bnd.round() as usize;
-        // index of highest channel still inside ROI
         let highest_ch = upper_ch_bnd.round() as usize;
 
         counts += spectrum[lowest_ch..=highest_ch]
@@ -351,6 +342,7 @@ impl DBSpectrum {
 
         counts
     }
+
 
     fn integrate_linear<T: LossyIntoF64>(
         spectrum: &[T],
@@ -398,6 +390,7 @@ impl DBSpectrum {
         counts
     }
 
+
     fn integrate_generic<T: LossyIntoF64>(
         spectrum: &[T],
         mut lower_ch_bnd: f64,
@@ -434,6 +427,7 @@ impl DBSpectrum {
         }
     }
 
+
     pub fn integrate(
         &self,
         area: Area,
@@ -443,9 +437,6 @@ impl DBSpectrum {
         let (lower_bnd, upper_bnd) = area.to_bnds_kev(self.detector.eres)
             .ok_or(AnalysisError::MissingEnergyResolution)?;
 
-        if in_corrected_peak && self.peak == None {
-            return Err(AnalysisError::NoPeakExtracted);
-        }
         if lower_bnd >= upper_bnd {
             return Err(AnalysisError::InputError {
                 violated_constraint: format!(
@@ -460,10 +451,16 @@ impl DBSpectrum {
         let mut upper_ch_bnd = ecal.to_index_f64(upper_bnd);
 
         if in_corrected_peak {
-            let (lower_peak_bnd, _) = self.peak_bnds.unwrap();
+            let Some((lower_peak_bnd, _)) = self.peak_bnd_idcs else {
+                return Err(AnalysisError::NoPeakExtracted);
+            };
+            let Some(peak) = &self.peak else {
+                return Err(AnalysisError::NoPeakExtracted);
+            };
+
             lower_ch_bnd -= lower_peak_bnd as f64;
             upper_ch_bnd -= lower_peak_bnd as f64;
-            let peak = self.peak.as_ref().unwrap();
+
             DBSpectrum::integrate_generic(
                 peak, lower_ch_bnd, upper_ch_bnd, bin_integration_scheme,
             )
@@ -478,6 +475,7 @@ impl DBSpectrum {
             )
         }
     }
+
 
     fn get_area_bnds(&self, areas: &[Area]) -> Result<Vec<(f64, f64)>, AnalysisError> {
         let bnds = areas
@@ -496,6 +494,7 @@ impl DBSpectrum {
 
         Ok(bnds)
     }
+
 
     pub fn calc_lineshape_param(
         &mut self,
@@ -527,11 +526,11 @@ impl DBSpectrum {
 
         for num_bnd in num_bnds.iter() {
             for denom_bnd in denom_bnds.iter() {
-                let left_bnd = num_bnd.0.max(denom_bnd.0);
-                let right_bnd = num_bnd.1.min(denom_bnd.1);
-                if left_bnd < right_bnd {
+                let left_bnd_kev = num_bnd.0.max(denom_bnd.0);
+                let right_bnd_kev = num_bnd.1.min(denom_bnd.1);
+                if left_bnd_kev < right_bnd_kev {
                     common += self.integrate(
-                        Area::Spectrum { left_bnd, right_bnd },
+                        Area::Spectrum { left_bnd_kev, right_bnd_kev },
                         definition.in_corrected_peak,
                         bin_integration_scheme,
                     )?;
@@ -557,5 +556,21 @@ impl DBSpectrum {
         self.lineshape_params.insert(definition.name.into(), ls_param);
 
         Ok(self.lineshape_params.get(definition.name).unwrap())
+    }
+
+
+    pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
+        self.correct_ecal(EcalCorrectionOrder::First)?;
+
+        self.extract_peak(30., PeakModel::ErfLinear2Gauss)?;
+
+        for param in STD_LINESHAPE_PARAMS {
+            self.calc_lineshape_param(param, BinIntegrationScheme::Const)?;
+        }
+
+        self.peak = None;
+        self.peak_bnd_idcs = None;
+
+        Ok(())
     }
 }

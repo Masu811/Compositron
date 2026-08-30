@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import overload
 
 import numpy as np
 import numpy.typing as npt
@@ -12,10 +13,16 @@ class LinearCalibration:
     offset: float
     scale: float
 
-    def from_index(self, index: float | int) -> float:
+    @overload
+    def from_index(self, index: float) -> float: ...
+
+    @overload
+    def from_index(self, index: np.ndarray) -> np.ndarray: ...
+
+    def from_index(self, index: float | np.ndarray) -> float | np.ndarray:
         return self.scale * index + self.offset
 
-    def to_index_rounded(self, value: float) -> int:
+    def to_index_rounded(self, value) -> int:
         return int(round((value - self.offset) / self.scale))
 
     def to_index_trunc(self, value: float) -> int:

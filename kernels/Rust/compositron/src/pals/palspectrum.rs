@@ -1,26 +1,31 @@
+use std::collections::HashMap;
+
 use thiserror::Error;
+use nalgebra::DVector;
 
 use crate::constants::FWHM_OVER_SIGMA;
 use crate::core::utils::{spectrum_match, TimingDetectorPair, Spectrum};
-use crate::core::fitting::{FitParam, LMFitError, VarproFitError};
-use crate::dbs::fitting::fit_gaussian;
+use crate::core::fitting::{FitParam, LMFitError, SimpleFitParam, VarproFitError};
+use crate::dbs::fitting::fit_gauss;
 use crate::pals::fitting::{fit_lifetime_spectrum, FitResult};
 use crate::pals::model::*;
 
+
 #[derive(Debug, Error)]
 pub enum AnalysisError {
-    #[error("")]
+    #[error("Fit failed")]
     LMFitError {
         #[from]
         source: LMFitError
     },
 
-    #[error("")]
+    #[error("Fit failed")]
     VarproFitError {
         #[from]
         source: VarproFitError
     },
 }
+
 
 #[derive(Debug, Error)]
 pub enum ReportError {
@@ -34,19 +39,15 @@ pub enum ReportError {
     }
 }
 
+
 pub struct PALSpectrum {
     pub spectrum: Spectrum,
     pub detpair: TimingDetectorPair,
     pub counts: u64,
-    pub dcounts: f64,
-    pub name: Option<String>,
-    pub peak_bnds: Option<(usize, usize)>,
-    pub peak_center: Option<f64>,
-    pub dpeak_center: Option<f64>,
-    pub peak_fwhm: Option<f64>,
-    pub dpeak_fwhm: Option<f64>,
+    pub peak_params: HashMap<&'static str, SimpleFitParam>,
     pub fit_result: Option<FitResult>,
 }
+
 
 impl PALSpectrum {
     pub fn new(
@@ -56,22 +57,16 @@ impl PALSpectrum {
         let counts = spectrum_match!(
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum::<u64>()
         );
-        let dcounts = (counts as f64).sqrt();
 
         PALSpectrum {
             spectrum,
             detpair,
             counts,
-            dcounts,
-            name: None,
-            peak_bnds: None,
-            peak_center: None,
-            dpeak_center: None,
-            peak_fwhm: None,
-            dpeak_fwhm: None,
+            peak_params: HashMap::new(),
             fit_result: None,
         }
     }
+
 
     fn get_peak_center(&mut self) -> Result<f64, AnalysisError> {
         let (argmax, _) = spectrum_match!(
@@ -96,18 +91,24 @@ impl PALSpectrum {
 
         let x = roi.map(|i| i as f64).collect::<Vec<f64>>();
 
-        let params = fit_gaussian(&x, &y, vec![argmax as f64, 100.])?;
+        let mut peak_params = fit_gauss(&x, &y, vec![argmax as f64, 100.])?;
 
-        let peak_center = params.get("x0_1").unwrap();
-        let peak_width = params.get("sig_1").unwrap();
+        let peak_height = peak_params.remove("amp_1").unwrap();
+        let peak_center = peak_params.remove("x0_1").unwrap();
+        let peak_width = peak_params.remove("sig_1").unwrap();
 
-        self.peak_center = Some(peak_center.val);
-        self.dpeak_center = Some(peak_center.err);
-        self.peak_fwhm = Some(peak_width.val * FWHM_OVER_SIGMA);
-        self.dpeak_fwhm = Some(peak_width.err * FWHM_OVER_SIGMA);
+        let x0 = peak_center.val;
 
-        Ok(peak_center.val)
+        self.peak_params.insert("center_idx", peak_center);
+        self.peak_params.insert("height", peak_height);
+        self.peak_params.insert("fwhm", SimpleFitParam {
+            val: peak_width.val * FWHM_OVER_SIGMA,
+            err: peak_width.err * FWHM_OVER_SIGMA
+        });
+
+        Ok(x0)
     }
+
 
     pub fn fit(
         &mut self,
@@ -115,10 +116,10 @@ impl PALSpectrum {
         fit_start_idx: usize,
         fit_end_idx: usize,
     ) -> Result<(), AnalysisError> {
-        let peak_center = match self.peak_center {
-            Some(val) => val,
-            None => self.get_peak_center()?
-        };
+        let peak_center = self.peak_params
+            .get("center_idx")
+            .map(|p| p.val)
+            .unwrap_or(self.get_peak_center()?);
 
         let roi = fit_start_idx..fit_end_idx;
 
@@ -145,6 +146,7 @@ impl PALSpectrum {
 
         Ok(())
     }
+
 
     fn print_params(params: &[&FitParam], names: Vec<String>) -> String {
         let mut text = String::new();
@@ -283,6 +285,7 @@ impl PALSpectrum {
         text
     }
 
+
     pub fn fit_report(
         &self,
     ) -> Result<String, ReportError> {
@@ -303,12 +306,6 @@ impl PALSpectrum {
         text.push_str(&thick_hline);
         text.push_str(&format!("{:^100}\n", "Fit report"));
         text.push_str(&thick_hline);
-        text.push('\n');
-        if let Some(name) = &self.name {
-            text.push_str(&format!("Spectrum Name: {}\n", name));
-        } else {
-            text.push_str("Spectrum Name: none\n");
-        }
         text.push('\n');
         text.push_str(&format!("Statistics: {}\n", self.counts));
         text.push_str(&format!("Number of Data Points: {}\n", result.n_dpoints));

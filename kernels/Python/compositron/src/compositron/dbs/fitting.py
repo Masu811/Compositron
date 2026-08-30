@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.typing as npt
-from scipy.special import erf
+from scipy.special import erfc
 from lmfit import Model
 
 from ..constants import TWO_OVER_SQRT_PI
@@ -16,7 +16,7 @@ def gauss(
     return amp * np.exp(-0.5 * ((x - x0) / sig)**2)
 
 
-def fit_gaussian(
+def fit_gauss(
     x: npt.NDArray[np.floating],
     y: npt.NDArray[np.floating],
     init: list[float | np.floating],
@@ -38,11 +38,7 @@ def fit_gaussian(
         j[1, :] = e * z
         j[2, :] = e * u * z
 
-        j *= weights
-
-        return j
-
-    w = 1. / np.sqrt(np.maximum(y, 1.))
+        return -j
 
     params = model.make_params(
         amp = init[0],
@@ -51,7 +47,7 @@ def fit_gaussian(
     )
 
     result = model.fit(
-        y, x=x, weights=w, params=params, fit_kws={"Dfun": jac, "col_deriv": True}
+        y, x=x, params=params, fit_kws={"Dfun": jac, "col_deriv": True}
     )
 
     params = result.params
@@ -71,7 +67,7 @@ def erf_linear_background(
     lin: float,
     off: float,
 ) -> npt.NDArray[np.floating]:
-    return amp * erf((x - x0) / sig) + lin * x + off
+    return amp * erfc((x - x0) / sig) + lin * x + off
 
 
 def erf_linear_1_gauss(
@@ -100,6 +96,7 @@ def fit_erf_linear_1_gauss(
         amp_1 = params["amp_1"]
         x0_1 = params["x0_1"]
         sig_1 = params["sig_1"]
+        erf_amp = params["erf_amp"]
 
         j = np.empty((6, x.size), dtype=np.float64)
 
@@ -108,11 +105,11 @@ def fit_erf_linear_1_gauss(
         z = u / sig_1
 
         j[0, :] = e / amp_1
-        j[1, :] = e * z - TWO_OVER_SQRT_PI * np.exp(-u**2) / sig_1
-        j[2, :] = e * u * z + TWO_OVER_SQRT_PI * np.exp(-u**2) * u / sig_1
-        j[3, :] = erf(u)
-        j[4, :] = 1.
-        j[5, :] = 0.
+        j[1, :] = e * z + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u**2) / sig_1
+        j[2, :] = e * u * z + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u**2) * u / sig_1
+        j[3, :] = erfc(u)
+        j[4, :] = x
+        j[5, :] = np.ones_like(x)
 
         j *= weights
 
@@ -169,7 +166,7 @@ def fit_erf_linear_2_gauss(
     y: npt.NDArray[np.floating],
     init: list[float | np.floating],
 ) -> dict[str, SimpleFitParam]:
-    model = Model(erf_linear_1_gauss)
+    model = Model(erf_linear_2_gauss)
 
     def jac(params, _, weights, x):
         amp_1 = params["amp_1"]
@@ -178,6 +175,7 @@ def fit_erf_linear_2_gauss(
         amp_2 = params["amp_2"]
         x0_2 = params["x0_2"]
         sig_2 = params["sig_2"]
+        erf_amp = params["erf_amp"]
 
         j = np.empty((9, x.size), dtype=np.float64)
 
@@ -189,18 +187,18 @@ def fit_erf_linear_2_gauss(
         z_2 = u_2 / sig_2
 
         j[0, :] = e_1 / amp_1
-        j[1, :] = e_1 * z_1 - TWO_OVER_SQRT_PI * np.exp(-u_1**2) / sig_1
-        j[2, :] = e_1 * u_1 * z_1 + TWO_OVER_SQRT_PI * np.exp(-u_1**2) * u_1 / sig_1
+        j[1, :] = e_1 * z_1 + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u_1**2) / sig_1
+        j[2, :] = e_1 * u_1 * z_1 + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u_1**2) * u_1 / sig_1
         j[3, :] = e_2 / amp_2
         j[4, :] = e_2 * z_2
         j[5, :] = e_2 * u_2 * z_2
-        j[6, :] = erf(u_1)
-        j[7, :] = 1.
-        j[8, :] = 0.
+        j[6, :] = erfc(u_1)
+        j[7, :] = x
+        j[8, :] = np.ones_like(x)
 
         j *= weights
 
-        return j
+        return -j
 
     w = 1. / np.sqrt(np.maximum(y, 1.))
 
@@ -263,7 +261,7 @@ def fit_erf_linear_3_gauss(
     y: npt.NDArray[np.floating],
     init: list[float | np.floating],
 ) -> dict[str, SimpleFitParam]:
-    model = Model(erf_linear_1_gauss)
+    model = Model(erf_linear_3_gauss)
 
     def jac(params, _, weights, x):
         amp_1 = params["amp_1"]
@@ -275,6 +273,7 @@ def fit_erf_linear_3_gauss(
         amp_3 = params["amp_3"]
         x0_3 = params["x0_3"]
         sig_3 = params["sig_3"]
+        erf_amp = params["erf_amp"]
 
         j = np.empty((12, x.size), dtype=np.float64)
 
@@ -289,21 +288,21 @@ def fit_erf_linear_3_gauss(
         z_3 = u_3 / sig_3
 
         j[0, :] = e_1 / amp_1
-        j[1, :] = e_1 * z_1 - TWO_OVER_SQRT_PI * np.exp(-u_1**2) / sig_1
-        j[2, :] = e_1 * u_1 * z_1 + TWO_OVER_SQRT_PI * np.exp(-u_1**2) * u_1 / sig_1
+        j[1, :] = e_1 * z_1 + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u_1**2) / sig_1
+        j[2, :] = e_1 * u_1 * z_1 + erf_amp * TWO_OVER_SQRT_PI * np.exp(-u_1**2) * u_1 / sig_1
         j[3, :] = e_2 / amp_2
         j[4, :] = e_2 * z_2
-        j[5, :] = e_1 * u_2 * z_2
+        j[5, :] = e_2 * u_2 * z_2
         j[6, :] = e_3 / amp_3
-        j[7, :] = e_2 * z_3
+        j[7, :] = e_3 * z_3
         j[8, :] = e_3 * u_3 * z_3
-        j[9, :] = erf(u_1)
-        j[10, :] = 1.
-        j[11, :] = 0.
+        j[9, :] = erfc(u_1)
+        j[10, :] = x
+        j[11, :] = np.ones_like(x)
 
         j *= weights
 
-        return j
+        return -j
 
     w = 1. / np.sqrt(np.maximum(y, 1.))
 
@@ -335,6 +334,9 @@ def fit_erf_linear_3_gauss(
         "amp_2": SimpleFitParam(params["amp_2"].value, params["amp_2"].stderr),
         "x0_2": SimpleFitParam(params["x0_2"].value, params["x0_2"].stderr),
         "sig_2": SimpleFitParam(params["sig_2"].value, params["sig_2"].stderr),
+        "amp_3": SimpleFitParam(params["amp_3"].value, params["amp_3"].stderr),
+        "x0_3": SimpleFitParam(params["x0_3"].value, params["x0_3"].stderr),
+        "sig_3": SimpleFitParam(params["sig_3"].value, params["sig_3"].stderr),
         "erf_amp": SimpleFitParam(params["erf_amp"].value, params["erf_amp"].stderr),
         "lin": SimpleFitParam(params["lin"].value, params["lin"].stderr),
         "const": SimpleFitParam(params["off"].value, params["off"].stderr),
