@@ -43,7 +43,11 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 add_executable(exampleDBSfit examples/dbs_fit.cpp)
 add_executable(examplePALSfit examples/pals_fit.cpp)
 add_executable(exampleCDBSfit examples/cdbs_fit.cpp)
+add_executable(benchCDBSfit examples/_bench_cdbs.cpp)
+add_executable(benchDBSfit examples/_bench_dbs.cpp)
 
 target_link_libraries(exampleDBSfit PRIVATE ${PROJECT_NAME})
 target_link_libraries(examplePALSfit PRIVATE ${PROJECT_NAME})
 target_link_libraries(exampleCDBSfit PRIVATE ${PROJECT_NAME})
+target_link_libraries(benchCDBSfit PRIVATE ${PROJECT_NAME})
+target_link_libraries(benchDBSfit PRIVATE ${PROJECT_NAME})

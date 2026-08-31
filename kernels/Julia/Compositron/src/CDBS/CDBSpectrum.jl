@@ -363,17 +363,17 @@ mutable struct CDBSpectrum
 end
 
 
-function project_axes(c::CDBSpectrum, onto_axis::Axis):::Projection
+function project_axes(c::CDBSpectrum, onto_axis::Axis)::Projection
     if onto_axis == Axis_FirstDet
         Projection(
-            sum(c.spectrum, dims=1),
+            vec(Float64.(sum(c.spectrum; dims=1))),
             c.detpair.first_det.name,
             c.detpair.first_det.ecal,
             nothing,
         )
     else
         Projection(
-            sum(c.spectrum, dims=2),
+            vec(Float64.(sum(c.spectrum; dims=2))),
             c.detpair.second_det.name,
             c.detpair.second_det.ecal,
             nothing,
@@ -900,8 +900,6 @@ function project_diagonal(
             )
         end
 
-        Projection(
-            spectrum, c.detpair.name, nothing, bins_kev,
-        )
+        Projection(spectrum, c.detpair.name, nothing, bins_kev)
     end
 end

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use thiserror::Error;
-use nalgebra::DVector;
 
 use crate::constants::FWHM_OVER_SIGMA;
 use crate::core::utils::{spectrum_match, TimingDetectorPair, Spectrum};

@@ -7,7 +7,6 @@ use compositron::cdbs::cdbspectrum::{
     Area, LineshapeParamDefinition, ProjectionBins
 };
 use compositron::importers::DataFormat;
-use compositron::spectrum2d_match;
 
 
 fn main() -> anyhow::Result<()> {

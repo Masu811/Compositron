@@ -13,7 +13,6 @@ use crate::cdbs::CDBSpectrum;
 use crate::core::Measurement;
 use crate::core::utils::{EnergyDetector, EnergyDetectorPair, LinearCalibration, Spectrum, Spectrum2D};
 use crate::importers::png_importer;
-use crate::spectrum2d_match;
 
 
 #[derive(Debug, Error)]

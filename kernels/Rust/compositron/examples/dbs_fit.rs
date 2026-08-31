@@ -8,8 +8,6 @@ fn main() -> anyhow::Result<()> {
         DataFormat::SlopeN42
     )?;
 
-    println!("{}", m.shape());
-
     let d = m.dbs.get_mut("OAB").unwrap();
 
     d.default_analyze()?;
