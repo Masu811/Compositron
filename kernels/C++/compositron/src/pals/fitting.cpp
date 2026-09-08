@@ -1,6 +1,7 @@
 #include "compositron/pals/fitting.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <ranges>
 
@@ -17,6 +18,35 @@
 namespace compositron::pals::fitting {
 
 
+Eigen::VectorXd lifetime_spectrum_component(
+    const Eigen::VectorXd& t,
+    double n,
+    double t0,
+    double tau,
+    double l_int,
+    double sig,
+    double r_int,
+    double r_t0
+) {
+    double sig_over_tau_sqrt_2 = sig / (tau * SQRT_2);
+    double sig_over_tau_sqrt_2_sq = sig_over_tau_sqrt_2 * sig_over_tau_sqrt_2;
+    double one_over_tau = 1 / tau;
+    double one_over_sig_sqrt_2 = 1 / (sig * SQRT_2);
+
+    Eigen::VectorXd y(t.size());
+
+    for (size_t i = 0; i < t.size(); ++i) {
+        double t_shifted = t[i] - (t0 + r_t0);
+        double e = std::exp(-t_shifted * one_over_tau + sig_over_tau_sqrt_2_sq);
+        double c = std::erfc(sig_over_tau_sqrt_2 - t_shifted * one_over_sig_sqrt_2);
+
+        y[i] = 0.5 * n * l_int * r_int * one_over_tau * e * c;
+    }
+
+    return y;
+}
+
+
 namespace {
 
 
@@ -24,17 +54,20 @@ class LifetimeFit {
 private:
     const Eigen::VectorXd& x;
     const Eigen::VectorXd& y;
+    Eigen::VectorXd w;
     const model::LifetimeModel& input_model;
     std::optional<model::LifetimeModel> output_model;
     int n_l;
     int n_r;
-    std::vector<uint8_t> l_vary;
-    std::vector<uint8_t> r_vary;
+    std::vector<uint8_t> vary;
+    double available_l_intensity;
+    double available_r_intensity;
     int last_l_vary_idx = -1;
     int last_r_vary_idx = -1;
     std::vector<double> opt;
     std::vector<double> values;
     std::vector<double> errors;
+    std::unique_ptr<LifetimeEvalCallback> callback;
     ceres::Problem problem;
     ceres::Solver::Summary summary;
 
@@ -142,6 +175,24 @@ private:
             }
         }
 
+        available_l_intensity = 1;
+
+        for (size_t i = 0; i < n_l; ++i) {
+            auto l_int = model.lifetime_components[i].intensity;
+            if (!l_int.vary && i != last_l_vary_idx) {
+                available_l_intensity -= l_int.val;
+            }
+        }
+
+        available_r_intensity = 1;
+
+        for (size_t i = 0; i < n_r; ++i) {
+            auto r_int = model.resolution_components[i].intensity;
+            if (!r_int.vary && i != last_r_vary_idx) {
+                available_r_intensity -= r_int.val;
+            }
+        }
+
         if (std::ranges::all_of(
             model.resolution_components, [](const auto& comp) { return comp.t0.vary; }
         )) {
@@ -157,20 +208,28 @@ private:
         opt.push_back(model.background_component.val);
         opt.push_back(model.shift_component.val);
 
-        double remaining_l_int = 1;
+        double remaining_l_int = available_l_intensity;
 
         for (auto& lt_comp : model.lifetime_components) {
             opt.push_back(lt_comp.lifetime.val);
-            opt.push_back(lt_comp.intensity.val / remaining_l_int);
-            remaining_l_int -= lt_comp.intensity.val;
+            if (lt_comp.intensity.vary) {
+                opt.push_back(lt_comp.intensity.val / remaining_l_int);
+                remaining_l_int -= lt_comp.intensity.val;
+            } else {
+                opt.push_back(lt_comp.intensity.val);
+            }
         }
 
-        double remaining_r_int = 1;
+        double remaining_r_int = available_r_intensity;
 
         for (auto& res_comp : model.resolution_components) {
             opt.push_back(res_comp.fwhm.val / FWHM_OVER_SIGMA);
-            opt.push_back(res_comp.intensity.val / remaining_r_int);
-            remaining_r_int -= res_comp.intensity.val;
+            if (res_comp.intensity.vary) {
+                opt.push_back(res_comp.intensity.val / remaining_r_int);
+                remaining_r_int -= res_comp.intensity.val;
+            } else {
+                opt.push_back(res_comp.intensity.val);
+            }
             opt.push_back(res_comp.t0.val);
         }
     }
@@ -179,12 +238,19 @@ private:
     void build_problem() {
         auto& model = output_model.value();
 
+        vary.push_back(model.scale_component.vary);
+        vary.push_back(model.background_component.vary);
+        vary.push_back(model.shift_component.vary);
+
         for (const auto& comp : model.lifetime_components) {
-            l_vary.push_back(comp.intensity.vary);
+            vary.push_back(comp.lifetime.vary);
+            vary.push_back(comp.intensity.vary);
         }
 
         for (const auto& comp : model.resolution_components) {
-            r_vary.push_back(comp.intensity.vary);
+            vary.push_back(comp.fwhm.vary);
+            vary.push_back(comp.intensity.vary);
+            vary.push_back(comp.t0.vary);
         }
 
         auto params = flatten_params();
@@ -196,17 +262,20 @@ private:
             opt_ptrs.push_back(&val);
         }
 
-        for (size_t i = 0; i < x.size(); ++i) {
-            auto* cost_function =
-                new ceres::DynamicAutoDiffCostFunction<LifetimeResidual, 1>(
-                    x[i], y[i], 1 / std::sqrt(std::max(y[i], 1.)),
-                    n_l, n_r, last_l_vary_idx, last_r_vary_idx, l_vary, r_vary
-                );
+        w = y.cwiseMax(1).cwiseSqrt().cwiseInverse();
 
-            for (size_t i = 0; i < n_params; ++i) {
-                cost_function->AddParameterBlock(1);
-            }
-            cost_function->SetNumResiduals(1);
+        callback = std::make_unique<LifetimeEvalCallback>(
+            x, y, w, opt, vary, n_l, n_r, last_l_vary_idx, last_r_vary_idx,
+            available_l_intensity, available_r_intensity
+        );
+
+        ceres::Problem::Options problem_options;
+        problem_options.evaluation_callback = callback.get();
+
+        problem = ceres::Problem(problem_options);
+
+        for (size_t i = 0; i < x.size(); ++i) {
+            auto* cost_function = new LifetimeCostFunction(i, *callback);
 
             problem.AddResidualBlock(cost_function, nullptr, opt_ptrs);
         }
@@ -236,16 +305,17 @@ private:
         double remaining_l_int = 1;
 
         for (auto i : std::views::iota(0, n_l)) {
-            values.push_back(opt[3 + 2 * i]);  // lifetime
-            if (l_vary[i]) {
-                double l_int = remaining_l_int * opt[3 + 2 * i + 1];
+            size_t base_idx = 3 + 2 * i;
+            values.push_back(opt[base_idx]);  // lifetime
+            if (vary[base_idx + 1]) {
+                double l_int = remaining_l_int * opt[base_idx + 1];
                 values.push_back(l_int);  // intensity
                 remaining_l_int -= l_int;
             } else if (i == last_l_vary_idx) {
                 double l_int = remaining_l_int;
                 values.push_back(l_int);  // intensity
             } else {
-                double l_int = opt[3 + 2 * i + 1];
+                double l_int = opt[base_idx + 1];
                 values.push_back(l_int);  // intensity
             }
         }
@@ -253,19 +323,20 @@ private:
         double remaining_r_int = 1;
 
         for (auto i : std::views::iota(0, n_r)) {
-            values.push_back(opt[3 + 2 * n_l + 3 * i] * FWHM_OVER_SIGMA);  // fwhm
-            if (r_vary[i]) {
-                double r_int = remaining_r_int * opt[3 + 2 * n_l + 3 * i + 1];
+            size_t base_idx = 3 + 2 * n_l + 3 * i;
+            values.push_back(opt[base_idx] * FWHM_OVER_SIGMA);  // fwhm
+            if (vary[base_idx + 1]) {
+                double r_int = remaining_r_int * opt[base_idx + 1];
                 values.push_back(r_int);  // intensity
                 remaining_r_int -= r_int;
             } else if (i == last_r_vary_idx) {
                 double r_int = remaining_r_int;
                 values.push_back(r_int);  // intensity
             } else {
-                double r_int = opt[3 + 2 * n_l + 3 * i + 1];
+                double r_int = opt[base_idx + 1];
                 values.push_back(r_int);  // intensity
             }
-            values.push_back(opt[3 + 2 * n_l + 3 * i + 2]);  // t0
+            values.push_back(opt[base_idx + 2]);  // t0
         }
 
         return values;
@@ -307,7 +378,7 @@ private:
 
             size_t i_idx = 3 + 2 * i + 1;
 
-            if (l_vary[i]) {
+            if (vary[i_idx]) {
                 // intensity
                 double err = std::sqrt(cov(cov_idx, cov_idx));
                 cov_idx++;
@@ -340,7 +411,7 @@ private:
 
             size_t i_idx = 3 + 2 * n_l + 3 * i + 1;
 
-            if (r_vary[i]) {
+            if (vary[i_idx]) {
                 // intensity
                 double err = std::sqrt(cov(cov_idx, cov_idx));
                 cov_idx++;
@@ -466,6 +537,10 @@ public:
     FitResult fit() {
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
+        options.max_num_iterations = 1000;
+        options.function_tolerance = 1.49012e-08;
+        options.parameter_tolerance = 1.49012e-08;
+        options.gradient_tolerance = 0;
 
         Solve(options, &problem, &summary);
 

@@ -11,4 +11,4 @@ const double SQRT_TWO_HALVES = 0.5 * SQRT_2;
 const double PI = 3.141592653589793;
 const double PI_OVER_FOUR = PI / 4;
 const double TWO_OVER_SQRT_PI = 1.1283791670955126;
-const double SQRT_2PI = 2.5066282746310007;
+const double SQRT_2_PI = 2.5066282746310007;

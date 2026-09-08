@@ -23,7 +23,7 @@ int main() {
 
     auto& s = m.pals.at("A");
 
-    s.fit(lt_model, 16500, 18000);
+    s.fit(lt_model, 16500, 17999);
 
     std::cout << s.fit_report() << std::endl;
 

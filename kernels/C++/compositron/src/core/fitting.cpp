@@ -43,6 +43,8 @@ std::optional<Eigen::MatrixXd> compute_covariance_multi_blocks(
     ceres::Problem& problem, const std::vector<double>& params
 ) {
     ceres::Covariance::Options cov_options;
+    cov_options.algorithm_type = ceres::DENSE_SVD;
+    cov_options.null_space_rank = -1;
     ceres::Covariance covariance(cov_options);
 
     size_t n = params.size();
