@@ -4,7 +4,7 @@ use std::fmt::{self, Display};
 use crate::importers::slope_n42_importer::import_n42;
 use crate::importers::meps_dat_importer::import_meps_dat;
 use crate::importers::{DataFormat, ImportError};
-use crate::{cdbs::CDBSpectrum, dbs::DBSpectrum, pals::PALSpectrum};
+use crate::{cdbs::{CDBSpectrum, CDBSpectrumR}, dbs::DBSpectrum, pals::PALSpectrum};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Shape {
@@ -26,6 +26,7 @@ pub struct Measurement {
     pub name: Option<String>,
     pub dbs: BTreeMap<String, DBSpectrum>,
     pub cdbs: BTreeMap<String, CDBSpectrum>,
+    pub cdbr: BTreeMap<String, CDBSpectrumR>,
     pub pals: BTreeMap<String, PALSpectrum>,
     pub metadata: HashMap<String, String>,
 }
@@ -37,6 +38,7 @@ impl Measurement {
             name: None,
             dbs: BTreeMap::new(),
             cdbs: BTreeMap::new(),
+            cdbr: BTreeMap::new(),
             pals: BTreeMap::new(),
             metadata: HashMap::new(),
         }

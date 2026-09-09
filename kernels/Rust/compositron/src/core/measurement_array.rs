@@ -2,7 +2,6 @@ use std::collections::{HashMap, BTreeMap};
 
 use nalgebra::{DVector, DMatrix};
 
-use crate::importers::{DataFormat, ImportError};
 use crate::core::utils::{
     Spectrum, Spectrum2D, EnergyDetector, EnergyDetectorPair, TimingDetectorPair
 };
@@ -68,4 +67,10 @@ impl MeasurementArray {
             metadata: HashMap::new(),
         }
     }
+
+    // pub fn from_dir(
+    //     &mut self, path: &str, format: DataFormat
+    // ) -> Result<(), ImportError> {
+    //     Ok(())
+    // }
 }

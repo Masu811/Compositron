@@ -1,5 +1,5 @@
 use crate::core::measurement::Measurement;
-use crate::importers::{DataFormat, ImportError};
+// use crate::importers::{DataFormat, ImportError};
 
 pub struct MeasurementList {
     pub measurements: Vec<Measurement>,
@@ -14,9 +14,9 @@ impl MeasurementList {
         }
     }
 
-    pub fn import(
-        &mut self, path: &str, format: DataFormat
-    ) -> Result<(), ImportError> {
-        Ok(())
-    }
+    // pub fn from_dir(
+    //     &mut self, path: &str, format: DataFormat
+    // ) -> Result<(), ImportError> {
+    //     Ok(())
+    // }
 }

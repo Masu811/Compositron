@@ -1,18 +1,3 @@
-// NOTE:
-// - The spectrum is expected to have its origin in the top left corner,
-//   meaning energy increases towards higher column indices and higher row
-//   indices.
-// - The first detector spans the rows (y-axis),
-//   the second detector spans the columns (x-axis)
-// - CEL: Constant Energy Line
-//   CML: Constant Momentum Line
-// - Energy along CEL: u := (x - y) / 2  (= actual Doppler shift)
-//   Energy along CML: v := (x + y - 1022) / 2
-// - Energy calibrations and energy resolutions are not assumed to be equal,
-//   which means the peak is not assumed to be at 45° in the spectrum, neither
-//   in index space (due to ecal assumption) nor energy space (due to eres
-//   assumption)
-
 use std::collections::HashMap;
 
 use nalgebra::{DMatrix, DVector};
@@ -31,19 +16,6 @@ use crate::core::utils::{
     LinearCalibration, Spectrum2D, Spectrum, Unit
 };
 use crate::dbs::DBSpectrum;
-
-// TODO:
-// - Background models
-// - Input sanitization
-// - Fix: If ecal is very wrong, peak extraction returns empty matrix
-// - Fix: Passing inf to areas works only if offset is 0
-// - Convenience macro for writing LineshapeParamDefinitions
-// - Clipping version of Area and ProjectionBins, that don't error when out of bounds
-//
-// optimizations for later:
-// - coalesce agg calls to reuse buffers
-// - use 2D fit results of one spectrum as init for the others
-// - couple ecal to DBSpectra, to avoid multiple ecal corrections
 
 
 #[derive(Debug, Error)]
@@ -102,26 +74,28 @@ pub enum BackgroundModel {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Axis {
-    FirstDetector,
-    SecondDetector,
+    CEL,
+    CML,
 }
 
 
 #[derive(Debug, Clone, Copy)]
 pub enum Area {
-    Diagonal {
+    AxisAligned {
         width_cel: Unit,
         width_cml: Unit,
     },
-    DiagonalWithOffset {
+    AxisAlignedWithOffset {
         width_cel: Unit,
         width_cml: Unit,
         offset_cel: Unit,
         offset_cml: Unit,
     },
-    AxisAligned {
-        first_det_bnds: (f64, f64),
-        second_det_bnds: (f64, f64),
+    Diagonal {
+        width_first_det: Unit,
+        width_second_det: Unit,
+        offset_first_det: Unit,
+        offset_second_det: Unit,
     },
     Ellipse {
         radius_cel: Unit,
@@ -160,13 +134,13 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "S",
         num: &[
-            Area::Diagonal {
+            Area::AxisAligned {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::Eres(1.),
             },
         ],
         denom: &[
-            Area::Diagonal {
+            Area::AxisAligned {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
             },
@@ -176,13 +150,13 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "W",
         num: &[
-            Area::DiagonalWithOffset {
+            Area::AxisAlignedWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(3.),
                 offset_cml: Unit::KeV(0.),
             },
-            Area::DiagonalWithOffset {
+            Area::AxisAlignedWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(-3.),
@@ -190,7 +164,7 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
             },
         ],
         denom: &[
-            Area::Diagonal {
+            Area::AxisAligned {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
             },
@@ -200,15 +174,15 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "P/T",
         num: &[
-            Area::Diagonal {
+            Area::AxisAligned {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
             },
         ],
         denom: &[
             Area::AxisAligned {
-                first_det_bnds: (f64::NEG_INFINITY, f64::INFINITY),
-                second_det_bnds: (f64::NEG_INFINITY, f64::INFINITY),
+                width_cel: Unit::KeV(f64::INFINITY),
+                width_cml: Unit::KeV(f64::INFINITY),
             },
         ],
         in_corrected_peak: false,
@@ -288,7 +262,6 @@ fn convert_parallelogram(
     let w2 = width_cml * (
         (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
-
     Parallelogram {
         center_i: i - peak_bnds.0.0 as f64,
         center_j: j - peak_bnds.1.0 as f64,
@@ -306,15 +279,15 @@ fn convert_ellipse(
     ecal: (LinearCalibration, LinearCalibration),
     peak_bnds: ((usize, usize), (usize, usize)),
 ) -> Ellipse {
-    let w1 = (
-        (radius_cel / ecal.1.scale).powi(2) + (radius_cel / ecal.0.scale).powi(2)
+    let w1 = radius_cel * (
+        (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
-    let w2 = (
-        (radius_cml / ecal.1.scale).powi(2) + (-radius_cml / ecal.0.scale).powi(2)
+    let w2 = radius_cml * (
+        (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
     Ellipse {
-        center_i: ecal.0.to_index_f64(M_E_KEV) - peak_bnds.0.0 as f64,
-        center_j: ecal.1.to_index_f64(M_E_KEV) - peak_bnds.1.0 as f64,
+        center_i: ecal.0.to_index_f64(0.) - peak_bnds.0.0 as f64,
+        center_j: ecal.1.to_index_f64(0.) - peak_bnds.1.0 as f64,
         radius_i: w1,
         radius_j: w2,
         phi: -(ecal.1.scale / ecal.0.scale).atan(),
@@ -473,7 +446,7 @@ impl Projection {
 }
 
 
-pub struct CDBSpectrum {
+pub struct CDBSpectrumR {
     pub spectrum: Spectrum2D,
     pub detpair: EnergyDetectorPair,
     pub counts: u64,
@@ -485,12 +458,12 @@ pub struct CDBSpectrum {
 }
 
 
-impl CDBSpectrum {
+impl CDBSpectrumR {
     pub fn new(spectrum: Spectrum2D, detpair: EnergyDetectorPair) -> Self {
         let counts = spectrum2d_match!(
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum::<u64>()
         );
-        CDBSpectrum {
+        CDBSpectrumR {
             spectrum,
             detpair,
             counts,
@@ -502,10 +475,9 @@ impl CDBSpectrum {
         }
     }
 
-
     pub fn project_axes(&self, onto_axis: Axis) -> Projection {
         match onto_axis {
-            Axis::FirstDetector => {
+            Axis::CEL => {
                 let spectrum = spectrum2d_match!(
                     &self.spectrum,
                     arr => DVector::from_iterator(arr.nrows(), arr
@@ -521,7 +493,7 @@ impl CDBSpectrum {
                     None,
                 )
             },
-            Axis::SecondDetector => {
+            Axis::CML => {
                 let spectrum = spectrum2d_match!(
                     &self.spectrum,
                     arr => DVector::from_iterator(arr.nrows(), arr
@@ -584,7 +556,7 @@ impl CDBSpectrum {
                 let y0 = ecal_1.from_index(i0);
                 let x0 = ecal_2.from_index(j0);
 
-                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, -0.78])?
+                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, 0.])?
             },
         };
 
@@ -615,11 +587,11 @@ impl CDBSpectrum {
             self.detpair.second_det.ecal
         );
 
-        let first_row_e = ecal_1.to_index_f64(M_E_KEV - peak_window_kev.0 / 2.);
-        let last_row_e = ecal_1.to_index_f64(M_E_KEV + peak_window_kev.0 / 2.);
+        let first_row_e = ecal_1.to_index_f64(0. - peak_window_kev.0 / 2.);
+        let last_row_e = ecal_1.to_index_f64(0. + peak_window_kev.0 / 2.);
 
-        let first_col_e = ecal_2.to_index_f64(M_E_KEV - peak_window_kev.1 / 2.);
-        let last_col_e = ecal_2.to_index_f64(M_E_KEV + peak_window_kev.1 / 2.);
+        let first_col_e = ecal_2.to_index_f64(0. - peak_window_kev.1 / 2.);
+        let last_col_e = ecal_2.to_index_f64(0. + peak_window_kev.1 / 2.);
 
         let first_row = (first_row_e as usize).min(self.spectrum.nrows() - 1);
         let last_row = ((last_row_e + 1.) as usize).min(self.spectrum.nrows() - 1);
@@ -668,12 +640,12 @@ impl CDBSpectrum {
 
         match order {
             EcalCorrectionOrder::Zeroth => {
-                ecal_1.offset += M_E_KEV - y0;
-                ecal_2.offset += M_E_KEV - x0;
+                ecal_1.offset -= y0;
+                ecal_2.offset -= x0;
             },
             EcalCorrectionOrder::First => {
-                ecal_1.scale *= (M_E_KEV - ecal_1.offset) / (y0 - ecal_1.offset);
-                ecal_2.scale *= (M_E_KEV - ecal_2.offset) / (x0 - ecal_2.offset);
+                ecal_1.scale *= -ecal_1.offset / (y0 - ecal_1.offset);
+                ecal_2.scale *= -ecal_2.offset / (x0 - ecal_2.offset);
             },
             EcalCorrectionOrder::None => unreachable!(),
         }
@@ -727,105 +699,22 @@ impl CDBSpectrum {
         peak_bnds: ((usize, usize), (usize, usize)),
     ) -> Result<Polygon, AnalysisError> {
         match area {
-            Area::Diagonal { width_cel, width_cml } => {
-                let (
-                    Some(mut width_cel), Some(width_cml)
-                ) = (
-                    width_cel.to_kev(self.detpair.eres),
-                    width_cml.to_kev(self.detpair.eres),
-                ) else {
-                    return Err(AnalysisError::MissingEnergyResolution);
-                };
-
-                if width_cel.is_infinite() {
-                    width_cel = match self.get_max_projection_length(
-                        0.5 * width_cml, ecal, peak_bnds
-                    ) {
-                        Some(x) => 2. * x,
-                        None => return Err(AnalysisError::InvalidAreaBounds),
-                    };
-                }
-
-                if !width_cel.is_finite() || !width_cml.is_finite() {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
-
-                Ok(Polygon { vertices: convert_parallelogram(
-                    width_cel, width_cml, 0., 0., ecal, peak_bnds,
-                ).to_vertices() })
-            },
-            Area::DiagonalWithOffset { width_cel, width_cml, offset_cel, offset_cml } => {
-                let (
-                    Some(mut width_cel), Some(width_cml),
-                    Some(offset_cel), Some(offset_cml)
-                ) = (
-                    width_cel.to_kev(self.detpair.eres),
-                    width_cml.to_kev(self.detpair.eres),
-                    offset_cel.to_kev(self.detpair.eres),
-                    offset_cml.to_kev(self.detpair.eres),
-                ) else {
-                    return Err(AnalysisError::MissingEnergyResolution);
-                };
-
-                if width_cel.is_infinite() {
-                    width_cel = match self.get_max_projection_length(
-                        0.5 * width_cml, ecal, peak_bnds
-                    ) {
-                        Some(x) => 2. * x,
-                        None => return Err(AnalysisError::InvalidAreaBounds),
-                    };
-                }
-
-                if !width_cel.is_finite() || !width_cml.is_finite() ||
-                    !offset_cel.is_finite() || !offset_cml.is_finite()
-                {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
-
-                Ok(Polygon { vertices: convert_parallelogram(
-                    width_cel, width_cml, offset_cel, offset_cml, ecal, peak_bnds,
-                ).to_vertices() })
-            },
-            Area::AxisAligned { first_det_bnds, second_det_bnds } => {
-                let (mut y_min, mut y_max) = first_det_bnds;
-                let (mut x_min, mut x_max) = second_det_bnds;
-
-                if y_min.is_infinite() {
-                    y_min = ecal.0.from_index_f64(peak_bnds.0.0 as f64 - 0.49);
-                }
-                if y_max.is_infinite() {
-                    y_max = ecal.0.from_index_f64(peak_bnds.0.1 as f64 + 0.49);
-                }
-                if x_min.is_infinite() {
-                    x_min = ecal.1.from_index_f64(peak_bnds.1.0 as f64 - 0.49);
-                }
-                if x_max.is_infinite() {
-                    x_max = ecal.1.from_index_f64(peak_bnds.1.1 as f64 + 0.49);
-                }
-
-                if !y_min.is_finite() || !y_max.is_finite() ||
-                    !x_min.is_finite() || !x_max.is_finite() {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
+            Area::AxisAligned { width_cel, width_cml } => {
+                let width_cel_kev = width_cel.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let width_cml_kev = width_cml.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
 
                 Ok(Polygon { vertices: convert_rectangle(
-                    (y_min, y_max), (x_min, x_max), ecal, peak_bnds,
+                    (-width_cml_kev / 2., width_cml_kev / 2.),
+                    (-width_cel_kev / 2., width_cel_kev / 2.),
+                    ecal,
+                    peak_bnds,
                 ).to_vertices() })
             },
-            Area::Ellipse { radius_cel, radius_cml } => {
-                let radius_cel = radius_cel.to_kev(self.detpair.eres)
-                    .ok_or(AnalysisError::MissingEnergyResolution)?;
-                let radius_cml = radius_cml.to_kev(self.detpair.eres)
-                    .ok_or(AnalysisError::MissingEnergyResolution)?;
-
-                if !radius_cel.is_finite() || !radius_cml.is_finite() {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
-
-                Ok(Polygon { vertices: convert_ellipse(
-                    radius_cel, radius_cml, ecal, peak_bnds,
-                ).to_vertices() })
-            },
+            Area::AxisAlignedWithOffset { width_cel, width_cml, offset_cel, offset_cml } => todo!(),
+            Area::Diagonal { width_first_det, width_second_det, offset_first_det, offset_second_det } => todo!(),
+            Area::Ellipse { radius_cel, radius_cml } => todo!(),
         }
     }
 
@@ -1092,123 +981,5 @@ impl CDBSpectrum {
         }
 
         Ok(())
-    }
-
-
-    pub fn project_digonal(
-        &mut self,
-        bins: ProjectionBins,
-        width: Unit,
-        max_length: Unit,
-        in_corrected_peak: bool,
-    ) -> Result<Projection, AnalysisError> {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
-            self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
-            self.detpair.second_det.ecal
-        );
-        let ecal = (ecal_1, ecal_2);
-
-        let integral_bnds = if in_corrected_peak {
-            let Some(bnds) = self.peak_bnds else {
-                return Err(AnalysisError::NoPeakExtracted);
-            };
-            bnds
-        } else {
-            ((0, self.spectrum.nrows() - 1), (0, self.spectrum.ncols() - 1))
-        };
-
-        let width_kev = width.to_kev(self.detpair.eres)
-            .ok_or(AnalysisError::MissingEnergyResolution)?;
-
-        let max_length_kev = max_length.to_kev(self.detpair.eres)
-            .ok_or(AnalysisError::MissingEnergyResolution)?;
-
-        match bins {
-            ProjectionBins::Linear(bins) => {
-                let u_bin = bins.to_kev(self.detpair.eres)
-                    .ok_or(AnalysisError::MissingEnergyResolution)?;
-                let Some(u_max) = self.get_max_projection_length(
-                    width_kev / 2., ecal, integral_bnds
-                ) else {
-                    return Err(AnalysisError::InvalidBins);
-                };
-
-                let u_max = u_max.min(max_length_kev);
-
-                let num_bins = 2 * (u_max / u_bin) as usize;
-
-                if num_bins < 2 {
-                    return Err(AnalysisError::InvalidBins);
-                }
-
-                let max_offset = ((num_bins / 2) as f64 - 0.5) * u_bin;
-
-                let ecal = LinearCalibration {
-                    offset: -max_offset, scale: u_bin
-                };
-
-                let spectrum = DVector::from_vec((0..num_bins)
-                    .map(|i| self.integrate(
-                        Area::DiagonalWithOffset {
-                            width_cel: Unit::KeV(u_bin),
-                            width_cml: width,
-                            offset_cel: Unit::KeV(ecal.from_index(i)),
-                            offset_cml: Unit::KeV(0.),
-                        },
-                        in_corrected_peak
-                    ))
-                    .collect::<Result<Vec<_>, _>>()?
-                );
-
-                Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
-                    Some(ecal),
-                    None,
-                ))
-            },
-            ProjectionBins::CustomZeroCentered(bins) => {
-                if bins.len() < 2 {
-                    return Err(AnalysisError::InvalidBins);
-                }
-
-                let bins_kev = bins
-                    .iter()
-                    .map(|x| x
-                        .to_kev(self.detpair.eres)
-                        .ok_or(AnalysisError::MissingEnergyResolution)
-                    )
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let mut spectrum = DVector::zeros(bins.len() - 1);
-
-                for i in 0..bins_kev.len() - 1 {
-                    let left_edge = bins_kev[i];
-                    let right_edge = bins_kev[i + 1];
-
-                    let width_cel = right_edge - left_edge;
-                    let offset = 0.5 * (left_edge + right_edge);
-
-                    spectrum[i] = self.integrate(
-                        Area::DiagonalWithOffset {
-                            width_cel: Unit::KeV(width_cel),
-                            width_cml: width,
-                            offset_cel: Unit::KeV(offset),
-                            offset_cml: Unit::KeV(0.),
-                        },
-                        in_corrected_peak
-                    )?;
-                }
-
-                Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
-                    None,
-                    Some(DVector::from_column_slice(&bins_kev))
-                ))
-            },
-        }
     }
 }
