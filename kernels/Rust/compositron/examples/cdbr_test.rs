@@ -1,16 +1,14 @@
 use std::io::{BufRead, Write};
 
-use compositron::cdbs::{CDBSpectrum, CDBSpectrumR};
+use compositron::cdbs::CDBSpectrumR;
 use compositron::core::Measurement;
 use compositron::core::utils::{EnergyDetector, EnergyDetectorPair, FromRowMajor, LinearCalibration, Spectrum2D, Unit};
-// use compositron::cdbs::cdbspectrum::{
-//     Area, LineshapeParamDefinition, ProjectionBins
-// };
 use compositron::cdbs::cdbspectrumr::{
     Area, LineshapeParamDefinition, ProjectionBins
 };
 use compositron::importers::{DataFormat, ImportError};
 use thiserror::Error;
+
 
 #[derive(Debug, Error)]
 enum MyCustomImportError {
@@ -20,6 +18,7 @@ enum MyCustomImportError {
         inner: std::io::Error
     }
 }
+
 
 fn import_csv(
     filepath: &str
@@ -76,6 +75,7 @@ fn import_csv(
     Ok(m)
 }
 
+
 fn main() -> anyhow::Result<()> {
     // Import
 
@@ -89,22 +89,6 @@ fn main() -> anyhow::Result<()> {
 
     c.correct_ecal(compositron::core::utils::EcalCorrectionOrder::First)?;
 
-    // let ls_param = LineshapeParamDefinition {
-    //     name: "S",
-    //     num: &[
-    //         Area::Diagonal {
-    //             width_cel: Unit::KeV(2.),
-    //             width_cml: Unit::KeV(1.),
-    //         },
-    //     ],
-    //     denom: &[
-    //         Area::Diagonal {
-    //             width_cel: Unit::KeV(10.),
-    //             width_cml: Unit::KeV(1.),
-    //         },
-    //     ],
-    //     in_corrected_peak: false,
-    // };
     let ls_param = LineshapeParamDefinition {
         name: "S",
         num: &[
@@ -128,20 +112,20 @@ fn main() -> anyhow::Result<()> {
 
     // Projection onto diagonal
 
-    // let p = c.project_digonal(
-    //     ProjectionBins::Linear(Unit::KeV(0.1)),
-    //     Unit::KeV(2.),
-    //     Unit::KeV(10.),
-    //     false
-    // )?;
+    let p = c.project_axes(
+        ProjectionBins::Linear(Unit::KeV(0.1)),
+        Unit::KeV(2.),
+        Unit::KeV(100.),
+        false
+    )?;
 
-    // // Write projection to file for inspection
+    // Write projection to file for inspection
 
-    // let mut f = std::fs::File::create("projection.csv").unwrap();
+    let mut f = std::fs::File::create("projection.csv").unwrap();
 
-    // for elem in p.spectrum.iter() {
-    //     write!(f, "{elem}\n").unwrap();
-    // }
+    for elem in p.spectrum.iter() {
+        write!(f, "{elem}\n").unwrap();
+    }
 
     Ok(())
 }

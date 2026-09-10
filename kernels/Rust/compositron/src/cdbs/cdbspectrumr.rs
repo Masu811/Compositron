@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 use thiserror::Error;
 
 use crate::cdbs::anti_aliasing::{
-    agg_aa, get_bounding_box, intersect_convex_polygons,
+    agg_aa, axis_aligned_aa, get_bounding_box, intersect_convex_polygons,
     AntiAliasingError, ConvexToVerticesCounterClockwise,
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
@@ -475,39 +475,120 @@ impl CDBSpectrumR {
         }
     }
 
-    pub fn project_axes(&self, onto_axis: Axis) -> Projection {
-        match onto_axis {
-            Axis::CEL => {
-                let spectrum = spectrum2d_match!(
-                    &self.spectrum,
-                    arr => DVector::from_iterator(arr.nrows(), arr
-                        .row_iter()
-                        .map(|row| row.iter().map(|&x| x as f64).sum())
-                    )
+
+    pub fn project_axes(
+        &mut self,
+        bins: ProjectionBins,
+        width: Unit,
+        max_length: Unit,
+        in_corrected_peak: bool,
+    ) -> Result<Projection, AnalysisError> {
+        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+            self.detpair.first_det.ecal
+        );
+        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+            self.detpair.second_det.ecal
+        );
+        let ecal = (ecal_1, ecal_2);
+
+        let integral_bnds = if in_corrected_peak {
+            let Some(bnds) = self.peak_bnds else {
+                return Err(AnalysisError::NoPeakExtracted);
+            };
+            bnds
+        } else {
+            ((0, self.spectrum.nrows() - 1), (0, self.spectrum.ncols() - 1))
+        };
+
+        let width_kev = width.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+        let max_length_kev = max_length.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+        match bins {
+            ProjectionBins::Linear(bins) => {
+                let u_bin = bins.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let Some(u_max) = self.get_max_projection_length(
+                    width_kev / 2., ecal, integral_bnds
+                ) else {
+                    return Err(AnalysisError::InvalidBins);
+                };
+
+                let u_max = u_max.min(max_length_kev);
+
+                let num_bins = 2 * (u_max / u_bin) as usize;
+
+                if num_bins < 2 {
+                    return Err(AnalysisError::InvalidBins);
+                }
+
+                let max_offset = ((num_bins / 2) as f64 - 0.5) * u_bin;
+
+                let ecal = LinearCalibration {
+                    offset: -max_offset, scale: u_bin
+                };
+
+                let spectrum = DVector::from_vec((0..num_bins)
+                    .map(|i| self.integrate(
+                        Area::AxisAlignedWithOffset {
+                            width_cel: Unit::KeV(u_bin),
+                            width_cml: width,
+                            offset_cel: Unit::KeV(ecal.from_index(i)),
+                            offset_cml: Unit::KeV(0.),
+                        },
+                        in_corrected_peak
+                    ))
+                    .collect::<Result<Vec<_>, _>>()?
                 );
 
-                Projection::new(
+                Ok(Projection::new(
                     spectrum,
-                    self.detpair.first_det.name.clone(),
-                    Some(self.detpair.first_det.ecal),
+                    self.detpair.name.clone(),
+                    Some(ecal),
                     None,
-                )
+                ))
             },
-            Axis::CML => {
-                let spectrum = spectrum2d_match!(
-                    &self.spectrum,
-                    arr => DVector::from_iterator(arr.nrows(), arr
-                        .row_iter()
-                        .map(|row| row.iter().map(|&x| x as f64).sum())
-                    )
-                );
+            ProjectionBins::CustomZeroCentered(bins) => {
+                if bins.len() < 2 {
+                    return Err(AnalysisError::InvalidBins);
+                }
 
-                Projection::new(
+                let bins_kev = bins
+                    .iter()
+                    .map(|x| x
+                        .to_kev(self.detpair.eres)
+                        .ok_or(AnalysisError::MissingEnergyResolution)
+                    )
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let mut spectrum = DVector::zeros(bins.len() - 1);
+
+                for i in 0..bins_kev.len() - 1 {
+                    let left_edge = bins_kev[i];
+                    let right_edge = bins_kev[i + 1];
+
+                    let width_cel = right_edge - left_edge;
+                    let offset = 0.5 * (left_edge + right_edge);
+
+                    spectrum[i] = self.integrate(
+                        Area::AxisAlignedWithOffset {
+                            width_cel: Unit::KeV(width_cel),
+                            width_cml: width,
+                            offset_cel: Unit::KeV(offset),
+                            offset_cml: Unit::KeV(0.),
+                        },
+                        in_corrected_peak
+                    )?;
+                }
+
+                Ok(Projection::new(
                     spectrum,
-                    self.detpair.second_det.name.clone(),
-                    Some(self.detpair.second_det.ecal),
+                    self.detpair.name.clone(),
                     None,
-                )
+                    Some(DVector::from_column_slice(&bins_kev))
+                ))
             },
         }
     }
@@ -712,7 +793,38 @@ impl CDBSpectrumR {
                     peak_bnds,
                 ).to_vertices() })
             },
-            Area::AxisAlignedWithOffset { width_cel, width_cml, offset_cel, offset_cml } => todo!(),
+            Area::AxisAlignedWithOffset {
+                width_cel, width_cml, offset_cel, offset_cml,
+            } => {
+                let width_cel_kev = width_cel
+                    .to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let width_cml_kev = width_cml
+                    .to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let offset_cel_kev = offset_cel
+                    .to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let offset_cml_kev = offset_cml
+                    .to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+                Ok(Polygon {
+                    vertices: convert_rectangle(
+                        (
+                            -width_cml_kev / 2. + offset_cml_kev,
+                            width_cml_kev / 2. + offset_cml_kev
+                        ),
+                        (
+                            -width_cel_kev / 2. + offset_cel_kev,
+                            width_cel_kev / 2. + offset_cel_kev
+                        ),
+                        ecal,
+                        peak_bnds,
+                    )
+                    .to_vertices(),
+                })
+            },
             Area::Diagonal { width_first_det, width_second_det, offset_first_det, offset_second_det } => todo!(),
             Area::Ellipse { radius_cel, radius_cml } => todo!(),
         }
@@ -745,26 +857,6 @@ impl CDBSpectrumR {
                 &self.spectrum,
                 arr => {
                     let view = arr.view((upper_row, left_col), (nrows, ncols));
-
-                    use std::io::Write;
-
-                    let mut f = std::fs::File::create("area.txt").unwrap();
-
-                    for row in view.column_iter() {
-                        for x in row.iter() {
-                            write!(f, "{x} ").unwrap();
-                        }
-                        writeln!(f, "").unwrap();
-                    }
-
-                    let mut f = std::fs::File::create("weights.txt").unwrap();
-
-                    for row in weights.column_iter() {
-                        for x in row.iter() {
-                            write!(f, "{x} ").unwrap();
-                        }
-                        writeln!(f, "").unwrap();
-                    }
 
                     view
                         .iter()
@@ -827,16 +919,74 @@ impl CDBSpectrumR {
         let nrows_view = lower_row - upper_row + 1;
         let ncols_view = right_col - left_col + 1;
 
-        let weights = agg_aa(nrows_view, ncols_view, &polygon)?;
+        match area {
+            Area::AxisAligned {
+                width_cel: _,
+                width_cml: _,
+            } | Area::AxisAlignedWithOffset {
+                width_cel: _,
+                width_cml: _,
+                offset_cel: _,
+                offset_cml: _
+            } => {
+                let (Some(j_min), Some(j_max), Some(i_max), Some(i_min)) = (
+                    polygon.vertices
+                        .iter().map(|v| v.x).min_by(|x1, x2| x1.total_cmp(x2)),
+                    polygon.vertices
+                        .iter().map(|v| v.x).max_by(|x1, x2| x1.total_cmp(x2)),
+                    polygon.vertices
+                        .iter().map(|v| v.y).max_by(|y1, y2| y1.total_cmp(y2)),
+                    polygon.vertices
+                        .iter().map(|v| v.y).min_by(|y1, y2| y1.total_cmp(y2)),
+                ) else {
+                    return Err(AnalysisError::AntiAliasingError {
+                        source: AntiAliasingError::InvalidVertices,
+                    });
+                };
 
-        self.blend_and_sum(
-            weights,
-            upper_row,
-            left_col,
-            nrows_view,
-            ncols_view,
-            in_corrected_peak,
-        )
+                let rectangle = Rectangle {
+                    i_min,
+                    i_max,
+                    j_min,
+                    j_max,
+                };
+
+                if in_corrected_peak {
+                    let Some(peak) = &self.peak else {
+                        return Err(AnalysisError::NoPeakExtracted);
+                    };
+
+                    let view = peak.view(
+                        (upper_row, left_col), (nrows_view, ncols_view)
+                    );
+
+                    Ok(axis_aligned_aa(&view, &rectangle)?)
+                } else {
+                    spectrum2d_match!(
+                        &self.spectrum,
+                        arr => {
+                            let view = arr.view(
+                                (upper_row, left_col), (nrows_view, ncols_view)
+                            );
+
+                            Ok(axis_aligned_aa(&view, &rectangle)?)
+                        }
+                    )
+                }
+            }
+            _ => {
+                let weights = agg_aa(nrows_view, ncols_view, &polygon)?;
+
+                self.blend_and_sum(
+                    weights,
+                    upper_row,
+                    left_col,
+                    nrows_view,
+                    ncols_view,
+                    in_corrected_peak,
+                )
+            }
+        }
     }
 
 

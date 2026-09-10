@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, Vector2};
+use nalgebra::{DMatrix, DMatrixView, Vector2};
 use thiserror::Error;
 
 use agg_rust::{
@@ -7,6 +7,9 @@ use agg_rust::{
     renderer_scanline::render_scanlines_aa_solid,
     rendering_buffer::RenderingBuffer, scanline_u::ScanlineU8,
 };
+
+use crate::core::utils::LossyIntoF64;
+
 
 #[derive(Debug, Error)]
 pub enum AntiAliasingError {
@@ -23,20 +26,24 @@ pub enum AntiAliasingError {
     InvalidVertices,
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     pub x: f64,
     pub y: f64,
 }
 
+
 pub trait ConvexToVerticesCounterClockwise {
     fn to_vertices(&self) -> Vec<Vertex>;
 }
+
 
 #[derive(Debug, Clone)]
 pub struct Polygon {
     pub vertices: Vec<Vertex>,
 }
+
 
 impl ConvexToVerticesCounterClockwise for Polygon {
     fn to_vertices(&self) -> Vec<Vertex> {
@@ -65,6 +72,7 @@ impl ConvexToVerticesCounterClockwise for Polygon {
     }
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub struct Rectangle {
     pub i_min: f64,
@@ -72,6 +80,7 @@ pub struct Rectangle {
     pub j_min: f64,
     pub j_max: f64,
 }
+
 
 impl ConvexToVerticesCounterClockwise for Rectangle {
     fn to_vertices(&self) -> Vec<Vertex> {
@@ -84,6 +93,7 @@ impl ConvexToVerticesCounterClockwise for Rectangle {
     }
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub struct Parallelogram {
     pub center_i: f64,
@@ -93,6 +103,7 @@ pub struct Parallelogram {
     pub side_length_1: f64,
     pub side_length_2: f64,
 }
+
 
 impl ConvexToVerticesCounterClockwise for Parallelogram {
     fn to_vertices(&self) -> Vec<Vertex> {
@@ -116,6 +127,7 @@ impl ConvexToVerticesCounterClockwise for Parallelogram {
     }
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub struct Ellipse {
     pub center_i: f64,
@@ -124,6 +136,7 @@ pub struct Ellipse {
     pub radius_j: f64,
     pub phi: f64,
 }
+
 
 impl ConvexToVerticesCounterClockwise for Ellipse {
     fn to_vertices(&self) -> Vec<Vertex> {
@@ -147,6 +160,7 @@ impl ConvexToVerticesCounterClockwise for Ellipse {
     }
 }
 
+
 pub fn get_bounding_box(
     vertices: &[Vertex]
 ) -> Result<(usize, usize, usize, usize), AntiAliasingError> {
@@ -166,6 +180,69 @@ pub fn get_bounding_box(
 
     Ok((left_col, right_col, lower_row, upper_row))
 }
+
+
+pub fn axis_aligned_aa<T: LossyIntoF64>(
+    spectrum: &DMatrixView<T>,
+    rectangle: &Rectangle,
+) -> Result<f64, AntiAliasingError> {
+    let left_col = rectangle.j_min.round() as usize;
+    let right_col = rectangle.j_max.round() as usize;
+    let upper_row = rectangle.i_min.round() as usize;
+    let lower_row = rectangle.i_max.round() as usize;
+
+    if right_col >= spectrum.ncols() || lower_row >= spectrum.nrows() {
+        return Err(AntiAliasingError::OutOfBounds);
+    }
+
+    let nrows_view = lower_row - upper_row + 1;
+    let ncols_view = right_col - left_col + 1;
+
+    let mut counts = spectrum
+        .view((upper_row, left_col), (nrows_view, ncols_view))
+        .iter()
+        .map(|&x| T::lossy_into_f64(x))
+        .sum::<f64>();
+
+    if left_col == right_col {
+        counts *= rectangle.j_max - rectangle.j_min;
+    } else {
+        let f_left = rectangle.j_min - (left_col as f64 - 0.5);
+        counts -= spectrum
+            .column(left_col)
+            .iter()
+            .map(|&x| T::lossy_into_f64(x) * f_left)
+            .sum::<f64>();
+
+        let f_right = right_col as f64 + 0.5 - rectangle.j_max;
+        counts -= spectrum
+            .column(right_col)
+            .iter()
+            .map(|&x| T::lossy_into_f64(x) * f_right)
+            .sum::<f64>();
+    }
+
+    if upper_row == lower_row {
+        counts *= rectangle.i_max - rectangle.i_min;
+    } else {
+        let f_lower = lower_row as f64 + 0.5 - rectangle.i_max;
+        counts -= spectrum
+            .row(lower_row)
+            .iter()
+            .map(|&x| T::lossy_into_f64(x) * f_lower)
+            .sum::<f64>();
+
+        let f_upper = rectangle.i_min - (upper_row as f64 - 0.5);
+        counts -= spectrum
+            .row(upper_row)
+            .iter()
+            .map(|&x| T::lossy_into_f64(x) * f_upper)
+            .sum::<f64>();
+    }
+
+    Ok(counts)
+}
+
 
 pub fn agg_aa(
     nrows: usize,
@@ -228,6 +305,7 @@ pub fn agg_aa(
     Ok(weights)
 }
 
+
 fn compute_intersection(
     a: &Vertex, b: &Vertex, v1: &Vertex, v2: &Vertex
 ) -> Vertex {
@@ -243,12 +321,14 @@ fn compute_intersection(
     Vertex { x: x0, y: y0 }
 }
 
+
 fn inside(v: &Vertex, v1: &Vertex, v2: &Vertex) -> bool {
     let a = Vector2::from_vec(vec![v1.x - v2.x, v1.y - v2.y]);
     let b = Vector2::from_vec(vec![v1.x - v.x, v1.y - v.y]);
 
     a.x * b.y - a.y * b.x >= 0.
 }
+
 
 /// Intersection by Sutherland-Hodgman clipping
 pub fn intersect_convex_polygons(

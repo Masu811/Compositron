@@ -13,12 +13,12 @@ The core computational libraries and the GUIs are designed to be modular, allowi
 
 | Feature              | Rust  | C++   | Julia | Python | C     |
 | :---                 | :---: | :---: | :---: | :---:  | :---: |
-| SLOPE importer       | [x]   | [x]   | [x]   | [x]    | [x]   |
-| DBS analysis         | [x]   | [x]   | [x]   | [x]    | [ ]   |
-| MePS importer        | [x]   | [x]   | [x]   | [x]    | [ ]   |
-| PALS analysis        | [x]   | [x]   | [x]   | [x]    | [ ]   |
-| CDBS analysis        | [x]   | [x]   | [x]   | [x]    | [ ]   |
-| Measurement Handling | [ ]   | [ ]   | [ ]   | [ ]    | [ ]   |
+| SLOPE importer       | ✓     | ✓     | ✓     | ✓      | ✓     |
+| DBS analysis         | ✓     | ✓     | ✓     | ✓      |       |
+| MePS importer        | ✓     | ✓     | ✓     | ✓      |       |
+| PALS analysis        | ✓     | ✓     | ✓     | ✓      |       |
+| CDBS analysis        | ✓     | ✓     | ✓     | ✓      |       |
+| Measurement Handling |       |       |       |        |       |
 
 **Long Term (in only one of the above languages)**
 

@@ -857,26 +857,6 @@ impl CDBSpectrum {
                 arr => {
                     let view = arr.view((upper_row, left_col), (nrows, ncols));
 
-                    use std::io::Write;
-
-                    let mut f = std::fs::File::create("area.txt").unwrap();
-
-                    for row in view.column_iter() {
-                        for x in row.iter() {
-                            write!(f, "{x} ").unwrap();
-                        }
-                        writeln!(f, "").unwrap();
-                    }
-
-                    let mut f = std::fs::File::create("weights.txt").unwrap();
-
-                    for row in weights.column_iter() {
-                        for x in row.iter() {
-                            write!(f, "{x} ").unwrap();
-                        }
-                        writeln!(f, "").unwrap();
-                    }
-
                     view
                         .iter()
                         .zip(weights.iter())

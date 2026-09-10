@@ -12,12 +12,14 @@ Disclaimer: The following benchmarks are highly preliminary, as they reflect uno
 
 ## CDBS
 
-| Task                 | Rust    | C++     | Julia   | Python  | STACS main | STACS perf_up |
-| :---                 | :---:   | :---:   | :---:   | :---:   | :---:      | :---:         |
-| Ecal-correction      | 1.96 ms | 3.36 ms | 6.6 ms  | 3.35 ms |            |               |
-| S-param calculation  | 50.0 µs | 33.0 µs | 106 µs  | 352 µs  | 825 ms     | 15 ms         |
-| Diagonal projection  | 1.84 ms | 1.19 ms | 3.36 ms | 28.3 ms | 2.2 s      | 35.7 ms       |
-| Axis projection      | 1.12 ms | 450 µs  | 90.4 µs | 353 µs  |            |               |
+| Task                 | Rust    | C++     | Julia   | Python  |
+| :---                 | :---:   | :---:   | :---:   | :---:   |
+| Ecal-correction      | 1.96 ms | 3.36 ms | 6.6 ms  | 3.35 ms |
+| S-param calculation  | 50.0 µs | 33.0 µs | 106 µs  | 352 µs  |
+| Diagonal projection  | 1.84 ms | 1.19 ms | 3.36 ms | 28.3 ms |
+| Axis projection      | 1.12 ms | 450 µs  | 90.4 µs | 353 µs  |
+| S-param calculation R | 4.5 µs |
+| Diagonal projection R | 570 µs |
 
 ## PALS
 
