@@ -3,7 +3,7 @@ use std::io::Write;
 use compositron::core::Measurement;
 use compositron::core::utils::{Unit, EcalCorrectionOrder};
 use compositron::cdbs::cdbspectrum::{
-    Area, LineshapeParamDefinition, ProjectionBins
+    Area, Axis, LineshapeParamDefinition, ProjectionBins
 };
 use compositron::importers::DataFormat;
 
@@ -25,13 +25,13 @@ fn main() -> anyhow::Result<()> {
     let ls_param = LineshapeParamDefinition {
         name: "S",
         num: &[
-            Area::Diagonal {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::KeV(1.),
             },
         ],
         denom: &[
-            Area::Diagonal {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(10.),
                 width_cml: Unit::KeV(1.),
             },
@@ -45,20 +45,21 @@ fn main() -> anyhow::Result<()> {
 
     // Projection onto diagonal
 
-    let p = c.project_digonal(
-        ProjectionBins::Linear(Unit::KeV(0.1)),
-        Unit::KeV(2.),
-        Unit::KeV(10.),
-        false
-    )?;
+    // let p = c.project(
+    //     Axis::CEL,
+    //     ProjectionBins::Linear(Unit::KeV(0.1)),
+    //     Unit::KeV(2.),
+    //     Unit::KeV(10.),
+    //     false
+    // )?;
 
-    // Write projection to file for inspection
+    // // Write projection to file for inspection
 
-    let mut f = std::fs::File::create("projection.csv").unwrap();
+    // let mut f = std::fs::File::create("projection.csv").unwrap();
 
-    for elem in p.spectrum.iter() {
-        write!(f, "{elem}\n").unwrap();
-    }
+    // for elem in p.spectrum.iter() {
+    //     write!(f, "{elem}\n").unwrap();
+    // }
 
     Ok(())
 }

@@ -1,12 +1,12 @@
 use std::io::{BufRead, Write};
 
-use compositron::cdbs::CDBSpectrumR;
 use compositron::core::Measurement;
 use compositron::core::utils::{EnergyDetector, EnergyDetectorPair, FromRowMajor, LinearCalibration, Spectrum2D, Unit};
-use compositron::cdbs::cdbspectrumr::{
-    Area, LineshapeParamDefinition, ProjectionBins
+use compositron::cdbs::cdbspectrum::{
+    Area, Axis, LineshapeParamDefinition, Orientation, ProjectionBins, CDBSpectrum
 };
 use compositron::importers::{DataFormat, ImportError};
+use compositron::spectrum2d_match;
 use thiserror::Error;
 
 
@@ -50,7 +50,13 @@ fn import_csv(
 
     let nrows = spectrum.len().isqrt();
 
-    let c = CDBSpectrumR::new(
+    let orientation = if offset < 0. {
+        Orientation::CoincAligned
+    } else {
+        Orientation::DetAligned
+    };
+
+    let mut c = CDBSpectrum::new(
         Spectrum2D::from_row_major(&spectrum, nrows, nrows),
         EnergyDetectorPair {
             name: "A x B".into(),
@@ -67,10 +73,18 @@ fn import_csv(
                 eres: None
             },
             eres: None
-        }
+        },
+        orientation
     );
 
-    m.cdbr.insert("A x B".into(), c);
+    spectrum2d_match!(&mut c.spectrum, arr => {
+        arr.fill_column(0, 0);
+        arr.fill_column(arr.ncols() - 1, 0);
+        arr.fill_row(0, 0);
+        arr.fill_row(arr.nrows() - 1, 0);
+    });
+
+    m.cdbs.insert("A x B".into(), c);
 
     Ok(m)
 }
@@ -80,25 +94,25 @@ fn main() -> anyhow::Result<()> {
     // Import
 
     let mut m = Measurement::from_file(
-        // "../../../../testdata/coinc_spectrum_100.000000_0.100000.txt",
-        "../../../../testdata/coinc_spectrum_rot_-159.111803_0.070716.txt",
+        "../../../../testdata/coinc_spectrum_481.000000_0.010000.txt",
+        // "../../../../testdata/coinc_spectrum_rot_-21.214907_0.007072.txt",
         DataFormat::Custom { importer: import_csv }
     )?;
 
-    let c = m.cdbr.get_mut("A x B").unwrap();
+    let c = m.cdbs.get_mut("A x B").unwrap();
 
     c.correct_ecal(compositron::core::utils::EcalCorrectionOrder::First)?;
 
     let ls_param = LineshapeParamDefinition {
         name: "S",
         num: &[
-            Area::AxisAligned {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::KeV(1.),
             },
         ],
         denom: &[
-            Area::AxisAligned {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(10.),
                 width_cml: Unit::KeV(1.),
             },
@@ -112,10 +126,11 @@ fn main() -> anyhow::Result<()> {
 
     // Projection onto diagonal
 
-    let p = c.project_axes(
+    let p = c.project(
+        Axis::CEL,
         ProjectionBins::Linear(Unit::KeV(0.1)),
         Unit::KeV(2.),
-        Unit::KeV(100.),
+        Unit::KeV(20.),
         false
     )?;
 

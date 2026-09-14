@@ -19,7 +19,7 @@ use nalgebra::{DMatrix, DVector};
 use thiserror::Error;
 
 use crate::cdbs::anti_aliasing::{
-    agg_aa, get_bounding_box, intersect_convex_polygons,
+    agg_aa, axis_aligned_aa, get_bounding_box, intersect_convex_polygons,
     AntiAliasingError, ConvexToVerticesCounterClockwise,
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
@@ -81,6 +81,9 @@ pub enum AnalysisError {
     #[error("Invalid boundaries for area")]
     InvalidAreaBounds,
 
+    #[error("Invalid projection axis for underlying spectrum orientation")]
+    ProjectionError,
+
     #[error("Invalid bins for projection")]
     InvalidBins,
 
@@ -100,33 +103,51 @@ pub enum BackgroundModel {
 }
 
 
-#[derive(Debug, Clone, Copy)]
-pub enum Axis {
-    FirstDetector,
-    SecondDetector,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Orientation {
+    DetAligned,
+    CoincAligned,
 }
 
 
 #[derive(Debug, Clone, Copy)]
+pub enum Axis {
+    FirstDet,
+    SecondDet,
+    CEL,
+    CML,
+}
+
+
+#[derive(Debug, Clone)]
 pub enum Area {
-    Diagonal {
+    DetAligned {
+        width_first_det: Unit,
+        width_second_det: Unit,
+    },
+    DetAlignedWithOffset {
+        width_first_det: Unit,
+        width_second_det: Unit,
+        offset_first_det: Unit,
+        offset_second_det: Unit,
+    },
+    CoincAligned {
         width_cel: Unit,
         width_cml: Unit,
     },
-    DiagonalWithOffset {
+    CoincAlignedWithOffset {
         width_cel: Unit,
         width_cml: Unit,
         offset_cel: Unit,
         offset_cml: Unit,
     },
-    AxisAligned {
-        first_det_bnds: (f64, f64),
-        second_det_bnds: (f64, f64),
-    },
     Ellipse {
         radius_cel: Unit,
         radius_cml: Unit,
-    }
+    },
+    Polygon {
+        polygon: Polygon
+    },
 }
 
 
@@ -156,17 +177,17 @@ pub struct LineshapeParamDefinition<'a> {
 }
 
 
-pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
+pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 2] = &[
     LineshapeParamDefinition {
         name: "S",
         num: &[
-            Area::Diagonal {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(2.),
                 width_cml: Unit::Eres(1.),
             },
         ],
         denom: &[
-            Area::Diagonal {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
             },
@@ -176,13 +197,13 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
     LineshapeParamDefinition {
         name: "W",
         num: &[
-            Area::DiagonalWithOffset {
+            Area::CoincAlignedWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(3.),
                 offset_cml: Unit::KeV(0.),
             },
-            Area::DiagonalWithOffset {
+            Area::CoincAlignedWithOffset {
                 width_cel: Unit::KeV(1.),
                 width_cml: Unit::Eres(1.),
                 offset_cel: Unit::KeV(-3.),
@@ -190,28 +211,12 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 3] = &[
             },
         ],
         denom: &[
-            Area::Diagonal {
+            Area::CoincAligned {
                 width_cel: Unit::KeV(f64::INFINITY),
                 width_cml: Unit::Eres(1.),
             },
         ],
         in_corrected_peak: true,
-    },
-    LineshapeParamDefinition {
-        name: "P/T",
-        num: &[
-            Area::Diagonal {
-                width_cel: Unit::KeV(f64::INFINITY),
-                width_cml: Unit::Eres(1.),
-            },
-        ],
-        denom: &[
-            Area::AxisAligned {
-                first_det_bnds: (f64::NEG_INFINITY, f64::INFINITY),
-                second_det_bnds: (f64::NEG_INFINITY, f64::INFINITY),
-            },
-        ],
-        in_corrected_peak: false,
     },
 ];
 
@@ -258,6 +263,36 @@ fn uv_to_ij(
 }
 
 
+#[inline]
+fn ij_to_uv_r(i: f64, ecal: LinearCalibration) -> f64 {
+    ecal.from_index_f64(i)
+}
+
+
+#[inline]
+fn uv_to_ij_r(u: f64, ecal: LinearCalibration) -> f64 {
+    ecal.to_index_f64(u)
+}
+
+
+#[inline]
+fn ij_to_xy_r(
+    i: f64, j: f64, ecal: (LinearCalibration, LinearCalibration)
+) -> (f64, f64) {
+    let (u, v) = (ij_to_uv_r(j, ecal.1), ij_to_uv_r(i, ecal.0));
+    uv_to_xy(u, v)
+}
+
+
+#[inline]
+fn xy_to_ij_r(
+    x: f64, y: f64, ecal: (LinearCalibration, LinearCalibration)
+) -> (f64, f64) {
+    let (u, v) = xy_to_uv(x, y);
+    (uv_to_ij_r(u, ecal.0), uv_to_ij_r(v, ecal.1))
+}
+
+
 fn convert_rectangle(
     first_det_bnds: (f64, f64),
     second_det_bnds: (f64, f64),
@@ -274,18 +309,27 @@ fn convert_rectangle(
 
 
 fn convert_parallelogram(
-    width_cel: f64,
-    width_cml: f64,
-    offset_cel: f64,
-    offset_cml: f64,
+    width_sum: f64,
+    width_dif: f64,
+    offset_sum: f64,
+    offset_dif: f64,
     ecal: (LinearCalibration, LinearCalibration),
     peak_bnds: ((usize, usize), (usize, usize)),
+    orientation: Orientation,
 ) -> Parallelogram {
-    let (i, j) = uv_to_ij(offset_cel, offset_cml, ecal);
-    let w1 = width_cel * (
+    let (i, j) = match orientation {
+        Orientation::DetAligned => {
+            uv_to_ij(offset_sum, offset_dif, ecal)
+        },
+        Orientation::CoincAligned => {
+            xy_to_ij_r(offset_dif, offset_dif, ecal)
+        }
+    };
+
+    let w1 = width_sum * (
         (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
-    let w2 = width_cml * (
+    let w2 = width_dif * (
         (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
 
@@ -305,19 +349,29 @@ fn convert_ellipse(
     radius_cml: f64,
     ecal: (LinearCalibration, LinearCalibration),
     peak_bnds: ((usize, usize), (usize, usize)),
+    orientation: Orientation,
 ) -> Ellipse {
-    let w1 = (
-        (radius_cel / ecal.1.scale).powi(2) + (radius_cel / ecal.0.scale).powi(2)
+    let (origin, phi) = match orientation {
+        Orientation::DetAligned => (
+            M_E_KEV,
+            -(ecal.1.scale / ecal.0.scale).atan()
+        ),
+        Orientation::CoincAligned => (0., 0.)
+    };
+
+    let w1 = radius_cel * (
+        (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
-    let w2 = (
-        (radius_cml / ecal.1.scale).powi(2) + (-radius_cml / ecal.0.scale).powi(2)
+    let w2 = radius_cml * (
+        (1. / ecal.1.scale).powi(2) + (1. / ecal.0.scale).powi(2)
     ).sqrt();
+
     Ellipse {
-        center_i: ecal.0.to_index_f64(M_E_KEV) - peak_bnds.0.0 as f64,
-        center_j: ecal.1.to_index_f64(M_E_KEV) - peak_bnds.1.0 as f64,
+        center_i: ecal.0.to_index_f64(origin) - peak_bnds.0.0 as f64,
+        center_j: ecal.1.to_index_f64(origin) - peak_bnds.1.0 as f64,
         radius_i: w1,
         radius_j: w2,
-        phi: -(ecal.1.scale / ecal.0.scale).atan(),
+        phi,
     }
 }
 
@@ -330,7 +384,8 @@ pub struct FoldedProjection {
 
 pub struct Projection {
     pub spectrum: DVector<f64>,
-    pub parent_detector_name: String,
+    pub parent_detpair_name: String,
+    pub parent_axis: Axis,
     pub ecal: Option<LinearCalibration>,
     pub bins: Option<DVector<f64>>,
     pub counts: f64,
@@ -340,7 +395,8 @@ pub struct Projection {
 impl Projection {
     pub fn new(
         spectrum: DVector<f64>,
-        parent_detector_name: String,
+        parent_detpair_name: String,
+        parent_axis: Axis,
         ecal: Option<LinearCalibration>,
         bins: Option<DVector<f64>>,
     ) -> Self {
@@ -348,7 +404,8 @@ impl Projection {
 
         Projection {
             spectrum,
-            parent_detector_name,
+            parent_detpair_name,
+            parent_axis,
             ecal,
             bins,
             counts,
@@ -463,7 +520,7 @@ impl Projection {
                 self.spectrum.iter().map(|&x| x as u64).collect::<Vec<u64>>()
             ),
             EnergyDetector {
-                name: self.parent_detector_name.clone(),
+                name: self.parent_detpair_name.clone(),
                 ecal,
                 corrected_ecal: None,
                 eres: None,
@@ -476,6 +533,7 @@ impl Projection {
 pub struct CDBSpectrum {
     pub spectrum: Spectrum2D,
     pub detpair: EnergyDetectorPair,
+    pub orientation: Orientation,
     pub counts: u64,
     pub peak: Option<DMatrix<f64>>,
     pub peak_bnds: Option<((usize, usize), (usize, usize))>,
@@ -486,13 +544,18 @@ pub struct CDBSpectrum {
 
 
 impl CDBSpectrum {
-    pub fn new(spectrum: Spectrum2D, detpair: EnergyDetectorPair) -> Self {
+    pub fn new(
+        spectrum: Spectrum2D,
+        detpair: EnergyDetectorPair,
+        orientation: Orientation,
+    ) -> Self {
         let counts = spectrum2d_match!(
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum::<u64>()
         );
         CDBSpectrum {
             spectrum,
             detpair,
+            orientation,
             counts,
             peak: None,
             peak_bnds: None,
@@ -502,10 +565,220 @@ impl CDBSpectrum {
         }
     }
 
+    pub fn project(
+        &mut self,
+        onto_axis: Axis,
+        bins: ProjectionBins,
+        width: Unit,
+        max_length: Unit,
+        in_corrected_peak: bool,
+    ) -> Result<Projection, AnalysisError> {
+        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+            self.detpair.first_det.ecal
+        );
+        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+            self.detpair.second_det.ecal
+        );
+        let ecal = (ecal_1, ecal_2);
 
-    pub fn project_axes(&self, onto_axis: Axis) -> Projection {
-        match onto_axis {
-            Axis::FirstDetector => {
+        let integral_bnds = if in_corrected_peak {
+            let Some(bnds) = self.peak_bnds else {
+                return Err(AnalysisError::NoPeakExtracted);
+            };
+            bnds
+        } else {
+            ((0, self.spectrum.nrows() - 1), (0, self.spectrum.ncols() - 1))
+        };
+
+        let width_kev = width.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+        let max_length_kev = max_length.to_kev(self.detpair.eres)
+            .ok_or(AnalysisError::MissingEnergyResolution)?;
+
+        match bins {
+            ProjectionBins::Linear(bins) => {
+                let u_bin = bins.to_kev(self.detpair.eres)
+                    .ok_or(AnalysisError::MissingEnergyResolution)?;
+                let Some(u_max) = self.get_max_projection_length(
+                    width_kev / 2., ecal, integral_bnds
+                ) else {
+                    return Err(AnalysisError::InvalidBins);
+                };
+
+                let u_max = u_max.min(max_length_kev);
+
+                let num_bins = 2 * (u_max / u_bin) as usize;
+
+                if num_bins < 2 {
+                    return Err(AnalysisError::InvalidBins);
+                }
+
+                let max_offset = ((num_bins / 2) as f64 - 0.5) * u_bin;
+
+                let ecal = LinearCalibration {
+                    offset: -max_offset, scale: u_bin
+                };
+
+                let spectrum = match onto_axis {
+                    Axis::FirstDet => {
+                        DVector::from_vec(
+                            (0..num_bins)
+                                .map(|i| self.integrate(
+                                    &Area::DetAlignedWithOffset {
+                                        width_first_det: Unit::KeV(u_bin),
+                                        width_second_det: width,
+                                        offset_first_det: Unit::KeV(ecal.from_index(i)),
+                                        offset_second_det: Unit::KeV(0.),
+                                    },
+                                    in_corrected_peak
+                                ))
+                                .collect::<Result<Vec<_>, _>>()?
+                        )
+                    },
+                    Axis::SecondDet => {
+                        DVector::from_vec(
+                            (0..num_bins)
+                                .map(|i| self.integrate(
+                                    &Area::DetAlignedWithOffset {
+                                        width_first_det: width,
+                                        width_second_det: Unit::KeV(u_bin),
+                                        offset_first_det: Unit::KeV(0.),
+                                        offset_second_det: Unit::KeV(ecal.from_index(i)),
+                                    },
+                                    in_corrected_peak
+                                ))
+                                .collect::<Result<Vec<_>, _>>()?
+                        )
+                    },
+                    Axis::CEL => {
+                        DVector::from_vec(
+                            (0..num_bins)
+                                .map(|i| self.integrate(
+                                    &Area::CoincAlignedWithOffset {
+                                        width_cel: Unit::KeV(u_bin),
+                                        width_cml: width,
+                                        offset_cel: Unit::KeV(ecal.from_index(i)),
+                                        offset_cml: Unit::KeV(0.),
+                                    },
+                                    in_corrected_peak
+                                ))
+                                .collect::<Result<Vec<_>, _>>()?
+                        )
+                    },
+                    Axis::CML => {
+                        DVector::from_vec(
+                            (0..num_bins)
+                                .map(|i| self.integrate(
+                                    &Area::CoincAlignedWithOffset {
+                                        width_cel: width,
+                                        width_cml: Unit::KeV(u_bin),
+                                        offset_cel: Unit::KeV(0.),
+                                        offset_cml: Unit::KeV(ecal.from_index(i)),
+                                    },
+                                    in_corrected_peak
+                                ))
+                                .collect::<Result<Vec<_>, _>>()?
+                        )
+                    },
+                };
+
+                Ok(Projection::new(
+                    spectrum,
+                    self.detpair.name.clone(),
+                    onto_axis,
+                    Some(ecal),
+                    None,
+                ))
+            },
+            ProjectionBins::CustomZeroCentered(bins) => {
+                if bins.len() < 2 {
+                    return Err(AnalysisError::InvalidBins);
+                }
+
+                let bins_kev = bins
+                    .iter()
+                    .map(|x| x
+                        .to_kev(self.detpair.eres)
+                        .ok_or(AnalysisError::MissingEnergyResolution)
+                    )
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let mut spectrum = DVector::zeros(bins.len() - 1);
+
+                for i in 0..bins_kev.len() - 1 {
+                    let left_edge = bins_kev[i];
+                    let right_edge = bins_kev[i + 1];
+
+                    let width_cel = right_edge - left_edge;
+                    let offset = 0.5 * (left_edge + right_edge);
+
+                    spectrum[i] = match onto_axis {
+                        Axis::FirstDet => {
+                            self.integrate(
+                                &Area::DetAlignedWithOffset {
+                                    width_first_det: Unit::KeV(width_cel),
+                                    width_second_det: width,
+                                    offset_first_det: Unit::KeV(offset),
+                                    offset_second_det: Unit::KeV(0.),
+                                },
+                                in_corrected_peak
+                            )?
+                        },
+                        Axis::SecondDet => {
+                            self.integrate(
+                                &Area::DetAlignedWithOffset {
+                                    width_first_det: width,
+                                    width_second_det: Unit::KeV(width_cel),
+                                    offset_first_det: Unit::KeV(0.),
+                                    offset_second_det: Unit::KeV(offset),
+                                },
+                                in_corrected_peak
+                            )?
+                        },
+                        Axis::CEL => {
+                            self.integrate(
+                                &Area::CoincAlignedWithOffset {
+                                    width_cel: Unit::KeV(width_cel),
+                                    width_cml: width,
+                                    offset_cel: Unit::KeV(offset),
+                                    offset_cml: Unit::KeV(0.),
+                                },
+                                in_corrected_peak
+                            )?
+                        },
+                        Axis::CML => {
+                            self.integrate(
+                                &Area::CoincAlignedWithOffset {
+                                    width_cel: width,
+                                    width_cml: Unit::KeV(width_cel),
+                                    offset_cel: Unit::KeV(0.),
+                                    offset_cml: Unit::KeV(offset),
+                                },
+                                in_corrected_peak
+                            )?
+                        },
+                    };
+                }
+
+                Ok(Projection::new(
+                    spectrum,
+                    self.detpair.name.clone(),
+                    onto_axis,
+                    None,
+                    Some(DVector::from_column_slice(&bins_kev))
+                ))
+            },
+        }
+    }
+
+
+    pub fn project_axes(
+        &self, onto_axis: Axis
+    ) -> Result<Projection, AnalysisError> {
+        match (&self.orientation, onto_axis) {
+            (Orientation::DetAligned, Axis::FirstDet)
+            | (Orientation::CoincAligned, Axis::CML) => {
                 let spectrum = spectrum2d_match!(
                     &self.spectrum,
                     arr => DVector::from_iterator(arr.nrows(), arr
@@ -514,14 +787,16 @@ impl CDBSpectrum {
                     )
                 );
 
-                Projection::new(
+                Ok(Projection::new(
                     spectrum,
-                    self.detpair.first_det.name.clone(),
+                    self.detpair.name.clone(),
+                    onto_axis,
                     Some(self.detpair.first_det.ecal),
                     None,
-                )
+                ))
             },
-            Axis::SecondDetector => {
+            (Orientation::DetAligned, Axis::SecondDet)
+            |(Orientation::CoincAligned, Axis::CEL) => {
                 let spectrum = spectrum2d_match!(
                     &self.spectrum,
                     arr => DVector::from_iterator(arr.nrows(), arr
@@ -530,13 +805,17 @@ impl CDBSpectrum {
                     )
                 );
 
-                Projection::new(
+                Ok(Projection::new(
                     spectrum,
-                    self.detpair.second_det.name.clone(),
+                    self.detpair.name.clone(),
+                    onto_axis,
                     Some(self.detpair.second_det.ecal),
                     None,
-                )
+                ))
             },
+            _ => {
+                Err(AnalysisError::ProjectionError)
+            }
         }
     }
 
@@ -584,7 +863,12 @@ impl CDBSpectrum {
                 let y0 = ecal_1.from_index(i0);
                 let x0 = ecal_2.from_index(j0);
 
-                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, -0.78])?
+                let phi = match &self.orientation {
+                    Orientation::DetAligned => -0.78,
+                    Orientation::CoincAligned => 0.,
+                };
+
+                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, phi])?
             },
         };
 
@@ -615,11 +899,17 @@ impl CDBSpectrum {
             self.detpair.second_det.ecal
         );
 
-        let first_row_e = ecal_1.to_index_f64(M_E_KEV - peak_window_kev.0 / 2.);
-        let last_row_e = ecal_1.to_index_f64(M_E_KEV + peak_window_kev.0 / 2.);
+        let origin = if self.orientation == Orientation::DetAligned {
+            M_E_KEV
+        } else {
+            0.
+        };
 
-        let first_col_e = ecal_2.to_index_f64(M_E_KEV - peak_window_kev.1 / 2.);
-        let last_col_e = ecal_2.to_index_f64(M_E_KEV + peak_window_kev.1 / 2.);
+        let first_row_e = ecal_1.to_index_f64(origin - peak_window_kev.0 / 2.);
+        let last_row_e = ecal_1.to_index_f64(origin + peak_window_kev.0 / 2.);
+
+        let first_col_e = ecal_2.to_index_f64(origin - peak_window_kev.1 / 2.);
+        let last_col_e = ecal_2.to_index_f64(origin + peak_window_kev.1 / 2.);
 
         let first_row = (first_row_e as usize).min(self.spectrum.nrows() - 1);
         let last_row = ((last_row_e + 1.) as usize).min(self.spectrum.nrows() - 1);
@@ -666,14 +956,19 @@ impl CDBSpectrum {
         let mut ecal_1 = self.detpair.first_det.ecal;
         let mut ecal_2 = self.detpair.second_det.ecal;
 
+        let origin = match &self.orientation {
+            Orientation::DetAligned => M_E_KEV,
+            Orientation::CoincAligned => 0.,
+        };
+
         match order {
             EcalCorrectionOrder::Zeroth => {
-                ecal_1.offset += M_E_KEV - y0;
-                ecal_2.offset += M_E_KEV - x0;
+                ecal_1.offset += origin - y0;
+                ecal_2.offset += origin - x0;
             },
             EcalCorrectionOrder::First => {
-                ecal_1.scale *= (M_E_KEV - ecal_1.offset) / (y0 - ecal_1.offset);
-                ecal_2.scale *= (M_E_KEV - ecal_2.offset) / (x0 - ecal_2.offset);
+                ecal_1.scale *= (origin - ecal_1.offset) / (y0 - ecal_1.offset);
+                ecal_2.scale *= (origin - ecal_2.offset) / (x0 - ecal_2.offset);
             },
             EcalCorrectionOrder::None => unreachable!(),
         }
@@ -720,99 +1015,174 @@ impl CDBSpectrum {
     }
 
 
-    fn calculate_polygon_boundaries(
+    fn calc_rect_boundaries(
         &self,
-        area: Area,
+        width_hor: Unit,
+        width_vert: Unit,
+        offset_hor: Unit,
+        offset_vert: Unit,
         ecal: (LinearCalibration, LinearCalibration),
         peak_bnds: ((usize, usize), (usize, usize)),
     ) -> Result<Polygon, AnalysisError> {
-        match area {
-            Area::Diagonal { width_cel, width_cml } => {
-                let (
-                    Some(mut width_cel), Some(width_cml)
-                ) = (
-                    width_cel.to_kev(self.detpair.eres),
-                    width_cml.to_kev(self.detpair.eres),
-                ) else {
-                    return Err(AnalysisError::MissingEnergyResolution);
-                };
+        let (Some(w1), Some(w2), Some(o1), Some(o2)) = (
+            width_hor.to_kev(self.detpair.eres),
+            width_vert.to_kev(self.detpair.eres),
+            offset_hor.to_kev(self.detpair.eres),
+            offset_vert.to_kev(self.detpair.eres),
+        ) else {
+            return Err(AnalysisError::MissingEnergyResolution);
+        };
 
-                if width_cel.is_infinite() {
-                    width_cel = match self.get_max_projection_length(
-                        0.5 * width_cml, ecal, peak_bnds
-                    ) {
-                        Some(x) => 2. * x,
-                        None => return Err(AnalysisError::InvalidAreaBounds),
-                    };
-                }
+        let origin = if self.orientation == Orientation::DetAligned {
+            M_E_KEV
+        } else {
+            0.
+        };
 
-                if !width_cel.is_finite() || !width_cml.is_finite() {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
+        let (x_min, x_max) = if w1.is_infinite() {
+            (
+                ecal.1.from_index_f64(peak_bnds.1.0 as f64 - 0.49),
+                ecal.1.from_index_f64(peak_bnds.1.1 as f64 + 0.49),
+            )
+        } else {
+            (origin - w1 / 2. + o1, origin + w1 / 2. + o1)
+        };
 
-                Ok(Polygon { vertices: convert_parallelogram(
-                    width_cel, width_cml, 0., 0., ecal, peak_bnds,
-                ).to_vertices() })
+        let (y_min, y_max) = if w2.is_infinite() {
+            (
+                ecal.0.from_index_f64(peak_bnds.0.0 as f64 - 0.49),
+                ecal.0.from_index_f64(peak_bnds.0.1 as f64 + 0.49),
+            )
+        } else {
+            (origin - w2 / 2. + o2, origin + w2 / 2. + o2)
+        };
+
+        if !y_min.is_finite() || !y_max.is_finite() ||
+            !x_min.is_finite() || !x_max.is_finite() {
+            return Err(AnalysisError::InvalidAreaBounds);
+        }
+
+        Ok(Polygon { vertices: convert_rectangle(
+            (y_min, y_max), (x_min, x_max), ecal, peak_bnds,
+        ).to_vertices() })
+    }
+
+
+    fn calc_para_boundaries(
+        &self,
+        width_sum: Unit,
+        width_dif: Unit,
+        offset_sum: Unit,
+        offset_dif: Unit,
+        ecal: (LinearCalibration, LinearCalibration),
+        peak_bnds: ((usize, usize), (usize, usize)),
+    ) -> Result<Polygon, AnalysisError> {
+        let (
+            Some(mut width_sum_kev), Some(width_dif_kev),
+            Some(offset_sum_kev), Some(offset_dif_kev)
+        ) = (
+            width_sum.to_kev(self.detpair.eres),
+            width_dif.to_kev(self.detpair.eres),
+            offset_sum.to_kev(self.detpair.eres),
+            offset_dif.to_kev(self.detpair.eres),
+        ) else {
+            return Err(AnalysisError::MissingEnergyResolution);
+        };
+
+        if width_sum_kev.is_infinite() {
+            width_sum_kev = match self.get_max_projection_length(
+                0.5 * width_dif_kev, ecal, peak_bnds
+            ) {
+                Some(x) => 2. * x,
+                None => return Err(AnalysisError::InvalidAreaBounds),
+            };
+        }
+
+        if !width_sum_kev.is_finite() || !width_dif_kev.is_finite() ||
+            !offset_sum_kev.is_finite() || !offset_dif_kev.is_finite()
+        {
+            return Err(AnalysisError::InvalidAreaBounds);
+        }
+
+        Ok(Polygon { vertices: convert_parallelogram(
+            width_sum_kev, width_dif_kev, offset_sum_kev, offset_dif_kev,
+            ecal, peak_bnds, self.orientation
+        ).to_vertices() })
+    }
+
+
+    fn calculate_polygon_boundaries(
+        &self,
+        area: &Area,
+        ecal: (LinearCalibration, LinearCalibration),
+        peak_bnds: ((usize, usize), (usize, usize)),
+    ) -> Result<Polygon, AnalysisError> {
+        match (&self.orientation, area) {
+            (
+                Orientation::DetAligned,
+                Area::DetAligned { width_first_det: w2, width_second_det: w1 }
+            ) | (
+                Orientation::CoincAligned,
+                Area::CoincAligned { width_cel: w1, width_cml: w2 }
+            ) => {
+                self.calc_rect_boundaries(
+                    *w1, *w2, Unit::KeV(0.), Unit::KeV(0.), ecal, peak_bnds
+                )
             },
-            Area::DiagonalWithOffset { width_cel, width_cml, offset_cel, offset_cml } => {
-                let (
-                    Some(mut width_cel), Some(width_cml),
-                    Some(offset_cel), Some(offset_cml)
-                ) = (
-                    width_cel.to_kev(self.detpair.eres),
-                    width_cml.to_kev(self.detpair.eres),
-                    offset_cel.to_kev(self.detpair.eres),
-                    offset_cml.to_kev(self.detpair.eres),
-                ) else {
-                    return Err(AnalysisError::MissingEnergyResolution);
-                };
-
-                if width_cel.is_infinite() {
-                    width_cel = match self.get_max_projection_length(
-                        0.5 * width_cml, ecal, peak_bnds
-                    ) {
-                        Some(x) => 2. * x,
-                        None => return Err(AnalysisError::InvalidAreaBounds),
-                    };
+            (
+                Orientation::DetAligned,
+                Area::DetAlignedWithOffset {
+                    width_first_det: w2, width_second_det: w1,
+                    offset_first_det: o2, offset_second_det: o1,
                 }
-
-                if !width_cel.is_finite() || !width_cml.is_finite() ||
-                    !offset_cel.is_finite() || !offset_cml.is_finite()
-                {
-                    return Err(AnalysisError::InvalidAreaBounds);
+            ) | (
+                Orientation::CoincAligned,
+                Area::CoincAlignedWithOffset {
+                    width_cel: w1, width_cml: w2, offset_cel: o1, offset_cml: o2
                 }
-
-                Ok(Polygon { vertices: convert_parallelogram(
-                    width_cel, width_cml, offset_cel, offset_cml, ecal, peak_bnds,
-                ).to_vertices() })
+            ) => {
+                self.calc_rect_boundaries(*w1, *w2, *o1, *o2, ecal, peak_bnds)
             },
-            Area::AxisAligned { first_det_bnds, second_det_bnds } => {
-                let (mut y_min, mut y_max) = first_det_bnds;
-                let (mut x_min, mut x_max) = second_det_bnds;
-
-                if y_min.is_infinite() {
-                    y_min = ecal.0.from_index_f64(peak_bnds.0.0 as f64 - 0.49);
-                }
-                if y_max.is_infinite() {
-                    y_max = ecal.0.from_index_f64(peak_bnds.0.1 as f64 + 0.49);
-                }
-                if x_min.is_infinite() {
-                    x_min = ecal.1.from_index_f64(peak_bnds.1.0 as f64 - 0.49);
-                }
-                if x_max.is_infinite() {
-                    x_max = ecal.1.from_index_f64(peak_bnds.1.1 as f64 + 0.49);
-                }
-
-                if !y_min.is_finite() || !y_max.is_finite() ||
-                    !x_min.is_finite() || !x_max.is_finite() {
-                    return Err(AnalysisError::InvalidAreaBounds);
-                }
-
-                Ok(Polygon { vertices: convert_rectangle(
-                    (y_min, y_max), (x_min, x_max), ecal, peak_bnds,
-                ).to_vertices() })
+            (
+                Orientation::CoincAligned,
+                Area::DetAligned { width_first_det: w2, width_second_det: w1 }
+            ) | (
+                Orientation::DetAligned,
+                Area::CoincAligned { width_cel: w1, width_cml: w2 }
+            ) => {
+                self.calc_para_boundaries(
+                    *w1, *w2, Unit::KeV(0.), Unit::KeV(0.), ecal, peak_bnds
+                )
             },
-            Area::Ellipse { radius_cel, radius_cml } => {
+            (
+                Orientation::CoincAligned,
+                Area::DetAlignedWithOffset {
+                    width_first_det: w2, width_second_det: w1,
+                    offset_first_det: o2, offset_second_det: o1,
+                }
+            ) | (
+                Orientation::DetAligned,
+                Area::CoincAlignedWithOffset {
+                    width_cel: w1, width_cml: w2, offset_cel: o1, offset_cml: o2
+                }
+            ) => {
+                self.calc_para_boundaries(*w1, *w2, *o1, *o2, ecal, peak_bnds)
+            },
+            (
+                _,
+                Area::Polygon { polygon }
+            ) => {
+                Ok(Polygon {
+                    vertices: polygon.vertices.iter().map(|v| Vertex {
+                        x: v.x - peak_bnds.1.0 as f64,
+                        y: v.y - peak_bnds.0.0 as f64
+                    }).collect::<Vec<_>>()
+                })
+            },
+            (
+                _,
+                Area::Ellipse { radius_cel, radius_cml }
+            ) => {
                 let radius_cel = radius_cel.to_kev(self.detpair.eres)
                     .ok_or(AnalysisError::MissingEnergyResolution)?;
                 let radius_cml = radius_cml.to_kev(self.detpair.eres)
@@ -823,7 +1193,7 @@ impl CDBSpectrum {
                 }
 
                 Ok(Polygon { vertices: convert_ellipse(
-                    radius_cel, radius_cml, ecal, peak_bnds,
+                    radius_cel, radius_cml, ecal, peak_bnds, self.orientation
                 ).to_vertices() })
             },
         }
@@ -872,7 +1242,7 @@ impl CDBSpectrum {
 
     pub fn integrate(
         &mut self,
-        area: Area,
+        area: &Area,
         in_corrected_peak: bool,
     ) -> Result<f64, AnalysisError> {
         let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
@@ -896,7 +1266,7 @@ impl CDBSpectrum {
         let ncols = integral_bnds.1.1 - integral_bnds.1.0 + 1;
 
         let mut polygon = self.calculate_polygon_boundaries(
-            area, ecal, integral_bnds,
+            &area, ecal, integral_bnds,
         )?;
 
         let (
@@ -918,16 +1288,85 @@ impl CDBSpectrum {
         let nrows_view = lower_row - upper_row + 1;
         let ncols_view = right_col - left_col + 1;
 
-        let weights = agg_aa(nrows_view, ncols_view, &polygon)?;
+        match (self.orientation, area) {
+            (
+                Orientation::DetAligned,
+                Area::DetAligned { width_first_det: _, width_second_det: _ }
+            ) | (
+                Orientation::DetAligned,
+                Area::DetAlignedWithOffset {
+                    width_first_det: _,
+                    width_second_det: _,
+                    offset_first_det: _,
+                    offset_second_det: _,
+                }
+            ) | (
+                Orientation::CoincAligned,
+                Area::CoincAligned { width_cel: _, width_cml: _ }
+            ) | (
+                Orientation::CoincAligned,
+                Area::CoincAlignedWithOffset {
+                    width_cel: _, width_cml: _, offset_cel: _, offset_cml: _
+                }
+            ) => {
+                let (Some(j_min), Some(j_max), Some(i_max), Some(i_min)) = (
+                    polygon.vertices
+                        .iter().map(|v| v.x).min_by(|x1, x2| x1.total_cmp(x2)),
+                    polygon.vertices
+                        .iter().map(|v| v.x).max_by(|x1, x2| x1.total_cmp(x2)),
+                    polygon.vertices
+                        .iter().map(|v| v.y).max_by(|y1, y2| y1.total_cmp(y2)),
+                    polygon.vertices
+                        .iter().map(|v| v.y).min_by(|y1, y2| y1.total_cmp(y2)),
+                ) else {
+                    return Err(AnalysisError::AntiAliasingError {
+                        source: AntiAliasingError::InvalidVertices,
+                    });
+                };
 
-        self.blend_and_sum(
-            weights,
-            upper_row,
-            left_col,
-            nrows_view,
-            ncols_view,
-            in_corrected_peak,
-        )
+                let rectangle = Rectangle {
+                    i_min,
+                    i_max,
+                    j_min,
+                    j_max,
+                };
+
+                if in_corrected_peak {
+                    let Some(peak) = &self.peak else {
+                        return Err(AnalysisError::NoPeakExtracted);
+                    };
+
+                    let view = peak.view(
+                        (upper_row, left_col), (nrows_view, ncols_view)
+                    );
+
+                    Ok(axis_aligned_aa(&view, &rectangle)?)
+                } else {
+                    spectrum2d_match!(
+                        &self.spectrum,
+                        arr => {
+                            let view = arr.view(
+                                (upper_row, left_col), (nrows_view, ncols_view)
+                            );
+
+                            Ok(axis_aligned_aa(&view, &rectangle)?)
+                        }
+                    )
+                }
+            }
+            _ => {
+                let weights = agg_aa(nrows_view, ncols_view, &polygon)?;
+
+                self.blend_and_sum(
+                    weights,
+                    upper_row,
+                    left_col,
+                    nrows_view,
+                    ncols_view,
+                    in_corrected_peak,
+                )
+            }
+        }
     }
 
 
@@ -957,14 +1396,14 @@ impl CDBSpectrum {
 
         let num_polygons = definition.num
             .iter()
-            .map(|&area| self.calculate_polygon_boundaries(
+            .map(|area| self.calculate_polygon_boundaries(
                 area, ecal, integral_bnds,
             ))
             .collect::<Result<Vec<_>, _>>()?;
 
         let denom_polygons = definition.denom
             .iter()
-            .map(|&area| self.calculate_polygon_boundaries(
+            .map(|area| self.calculate_polygon_boundaries(
                 area, ecal, integral_bnds,
             ))
             .collect::<Result<Vec<_>, _>>()?;
@@ -985,12 +1424,12 @@ impl CDBSpectrum {
 
         let num_areas = definition.num
             .iter()
-            .map(|&area| self.integrate(area, definition.in_corrected_peak))
+            .map(|area| self.integrate(area, definition.in_corrected_peak))
             .collect::<Result<Vec<f64>, AnalysisError>>()?;
 
         let denom_areas = definition.denom
             .iter()
-            .map(|&area| self.integrate(area, definition.in_corrected_peak))
+            .map(|area| self.integrate(area, definition.in_corrected_peak))
             .collect::<Result<Vec<f64>, AnalysisError>>()?;
 
         let mut common_areas = Vec::new();
@@ -1072,123 +1511,5 @@ impl CDBSpectrum {
         }
 
         Ok(())
-    }
-
-
-    pub fn project_digonal(
-        &mut self,
-        bins: ProjectionBins,
-        width: Unit,
-        max_length: Unit,
-        in_corrected_peak: bool,
-    ) -> Result<Projection, AnalysisError> {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
-            self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
-            self.detpair.second_det.ecal
-        );
-        let ecal = (ecal_1, ecal_2);
-
-        let integral_bnds = if in_corrected_peak {
-            let Some(bnds) = self.peak_bnds else {
-                return Err(AnalysisError::NoPeakExtracted);
-            };
-            bnds
-        } else {
-            ((0, self.spectrum.nrows() - 1), (0, self.spectrum.ncols() - 1))
-        };
-
-        let width_kev = width.to_kev(self.detpair.eres)
-            .ok_or(AnalysisError::MissingEnergyResolution)?;
-
-        let max_length_kev = max_length.to_kev(self.detpair.eres)
-            .ok_or(AnalysisError::MissingEnergyResolution)?;
-
-        match bins {
-            ProjectionBins::Linear(bins) => {
-                let u_bin = bins.to_kev(self.detpair.eres)
-                    .ok_or(AnalysisError::MissingEnergyResolution)?;
-                let Some(u_max) = self.get_max_projection_length(
-                    width_kev / 2., ecal, integral_bnds
-                ) else {
-                    return Err(AnalysisError::InvalidBins);
-                };
-
-                let u_max = u_max.min(max_length_kev);
-
-                let num_bins = 2 * (u_max / u_bin) as usize;
-
-                if num_bins < 2 {
-                    return Err(AnalysisError::InvalidBins);
-                }
-
-                let max_offset = ((num_bins / 2) as f64 - 0.5) * u_bin;
-
-                let ecal = LinearCalibration {
-                    offset: -max_offset, scale: u_bin
-                };
-
-                let spectrum = DVector::from_vec((0..num_bins)
-                    .map(|i| self.integrate(
-                        Area::DiagonalWithOffset {
-                            width_cel: Unit::KeV(u_bin),
-                            width_cml: width,
-                            offset_cel: Unit::KeV(ecal.from_index(i)),
-                            offset_cml: Unit::KeV(0.),
-                        },
-                        in_corrected_peak
-                    ))
-                    .collect::<Result<Vec<_>, _>>()?
-                );
-
-                Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
-                    Some(ecal),
-                    None,
-                ))
-            },
-            ProjectionBins::CustomZeroCentered(bins) => {
-                if bins.len() < 2 {
-                    return Err(AnalysisError::InvalidBins);
-                }
-
-                let bins_kev = bins
-                    .iter()
-                    .map(|x| x
-                        .to_kev(self.detpair.eres)
-                        .ok_or(AnalysisError::MissingEnergyResolution)
-                    )
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let mut spectrum = DVector::zeros(bins.len() - 1);
-
-                for i in 0..bins_kev.len() - 1 {
-                    let left_edge = bins_kev[i];
-                    let right_edge = bins_kev[i + 1];
-
-                    let width_cel = right_edge - left_edge;
-                    let offset = 0.5 * (left_edge + right_edge);
-
-                    spectrum[i] = self.integrate(
-                        Area::DiagonalWithOffset {
-                            width_cel: Unit::KeV(width_cel),
-                            width_cml: width,
-                            offset_cel: Unit::KeV(offset),
-                            offset_cml: Unit::KeV(0.),
-                        },
-                        in_corrected_peak
-                    )?;
-                }
-
-                Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
-                    None,
-                    Some(DVector::from_column_slice(&bins_kev))
-                ))
-            },
-        }
     }
 }

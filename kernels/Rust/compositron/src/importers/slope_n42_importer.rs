@@ -9,7 +9,7 @@ use roxmltree;
 use roxmltree::Node;
 
 use crate::dbs::DBSpectrum;
-use crate::cdbs::CDBSpectrum;
+use crate::cdbs::{CDBSpectrum, cdbspectrum::Orientation};
 use crate::core::Measurement;
 use crate::core::utils::{EnergyDetector, EnergyDetectorPair, LinearCalibration, Spectrum, Spectrum2D};
 use crate::importers::png_importer;
@@ -597,9 +597,7 @@ fn parse_cdbspectrum(
         None => Path::new(""),
     };
 
-    let spectrum = png_importer::import_png(&directory.join(png_filename))?;
-
-    Ok(Spectrum2D::from(spectrum))
+    Ok(png_importer::import_png(&directory.join(png_filename))?)
 }
 
 
@@ -672,7 +670,10 @@ fn import_cdbspectrum(
         eres: None,
     };
 
-    m.cdbs.insert(detpair_name, CDBSpectrum::new(spectrum, detpair));
+    m.cdbs.insert(
+        detpair_name,
+        CDBSpectrum::new(spectrum, detpair, Orientation::DetAligned)
+    );
 
     Ok(())
 }

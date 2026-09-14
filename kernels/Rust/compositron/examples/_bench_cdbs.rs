@@ -48,13 +48,13 @@ fn main() -> anyhow::Result<()> {
         let ls_param = LineshapeParamDefinition {
             name: "S",
             num: &[
-                Area::Diagonal {
+                Area::CoincAligned {
                     width_cel: Unit::KeV(2.),
                     width_cml: Unit::KeV(1.),
                 },
             ],
             denom: &[
-                Area::Diagonal {
+                Area::CoincAligned {
                     width_cel: Unit::KeV(10.),
                     width_cml: Unit::KeV(1.),
                 },
@@ -67,7 +67,8 @@ fn main() -> anyhow::Result<()> {
         s_calc.push(start.elapsed().as_nanos());
 
         let start = Instant::now();
-        let p = c.project_digonal(
+        let p = c.project(
+            Axis::CEL,
             ProjectionBins::Linear(Unit::KeV(0.1)),
             Unit::KeV(2.),
             Unit::KeV(100.),
@@ -76,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         proj_diag.push(start.elapsed().as_nanos());
 
         let start = Instant::now();
-        let p = c.project_axes(Axis::FirstDetector);
+        let p = c.project_axes(Axis::FirstDet);
         proj_axes.push(start.elapsed().as_nanos());
     }
 
