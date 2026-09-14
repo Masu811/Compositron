@@ -6,8 +6,8 @@ Disclaimer: The following benchmarks are highly preliminary, as they reflect uno
 
 | Task                 | Rust    | C++     | Julia   | Python  |
 | :---                 | :---:   | :---:   | :---:   | :---:   |
-| Ecal-correction      | 155 µs  | 313 µs  | 431 µs  | 1.84 ms |
-| BG-subtraction       | 1.53 ms | 1.32 ms | 3.6 ms  | 3.28 ms |
+| Ecal-correction      | 55.1 µs  | 313 µs  | 431 µs  | 1.84 ms |
+| BG-subtraction       | 260 µs | 1.32 ms | 3.6 ms  | 3.28 ms |
 | S-param calculation  | 1.07 µs | 5.89 µs | 4.37 µs | 67.3 µs |
 
 ## CDBS
@@ -31,4 +31,4 @@ Disclaimer: The following benchmarks are highly preliminary, as they reflect uno
 
 | Format | Rust    | C++     | Julia   | Python  |
 | :---   | :---:   | :---:   | :---:   | :---:   |
-| SLOPE  | 5.06 ms | 4.73 ms | 16.5 ms | 11.8 ms |
+| SLOPE  | 4.90 ms | 4.73 ms | 16.5 ms | 11.8 ms |
