@@ -68,7 +68,7 @@ impl PALSpectrum {
 
 
     fn get_peak_center(&mut self) -> Result<f64, AnalysisError> {
-        let (argmax, _) = spectrum_match!(
+        let (argmax, max) = spectrum_match!(
             &self.spectrum, arr => arr
                 .iter()
                 .enumerate()
@@ -90,7 +90,7 @@ impl PALSpectrum {
 
         let x = roi.map(|i| i as f64).collect::<Vec<f64>>();
 
-        let mut peak_params = fit_gauss(&x, &y, vec![argmax as f64, 100.])?;
+        let mut peak_params = fit_gauss(&x, &y, &vec![max as f64, argmax as f64, 100.])?;
 
         let peak_height = peak_params.remove("amp_1").unwrap();
         let peak_center = peak_params.remove("x0_1").unwrap();

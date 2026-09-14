@@ -1,303 +1,449 @@
 use std::collections::HashMap;
 
-use nalgebra::DVector;
+use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
+use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use statrs::function::erf::erfc;
-use varpro::prelude::*;
-use varpro::problem::*;
-use varpro::solvers::levmar::LevMarSolver;
+
+use crate::core::fitting::{FitStatus, LMFitError, SimpleFitParam};
 
 use crate::constants::TWO_OVER_SQRT_PI;
-use crate::core::fitting::{VarproFitError, SimpleFitParam};
 
-fn gauss_basis(
-    x: &DVector<f64>, x0: f64, sig: f64
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        (-0.5 * u*u).exp()
-    })
+struct GaussProblem {
+    x: DVector<f64>,
+    y: DVector<f64>,
+    p: DVector<f64>,
 }
 
-fn gaussian_dx0(
-    x: &DVector<f64>, x0: f64, sig: f64
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        (-0.5 * u*u).exp() * u / sig
-    })
+impl LeastSquaresProblem<f64, Dyn, Dyn> for GaussProblem {
+    type ParameterStorage = Owned<f64, Dyn>;
+    type ResidualStorage = Owned<f64, Dyn>;
+    type JacobianStorage = Owned<f64, Dyn, Dyn>;
+
+    fn set_params(&mut self, params: &DVector<f64>) {
+        self.p.copy_from(params);
+    }
+
+    fn params(&self) -> DVector<f64> {
+        self.p.clone()
+    }
+
+    fn residuals(&self) -> Option<DVector<f64>> {
+        let amp = self.p[0];
+        let x0 = self.p[1];
+        let sig = self.p[2];
+
+        let f = self.x.map(|x| {
+            let u = (x - x0) / sig;
+            amp * (-0.5 * u*u).exp()
+        });
+
+        let r = &self.y - f;
+
+        Some(r)
+    }
+
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let mut j = DMatrix::zeros(self.y.len(), 3);
+
+        let amp = self.p[0];
+        let x0 = self.p[1];
+        let sig = self.p[2];
+
+        for (i, x) in self.x.iter().enumerate() {
+            let u = (x - x0) / sig;
+            let z = u / sig;
+
+            let mut e = (-0.5 * u*u).exp();
+
+            j[(i, 0)] = e;
+
+            e *= amp;
+
+            j[(i, 1)] = e * z;
+            j[(i, 2)] = e * u * z;
+        }
+
+        Some(j)
+    }
 }
 
-fn gaussian_dsig(
-    x: &DVector<f64>, x0: f64, sig: f64
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        (-0.5 * u*u).exp() * u * u / sig
-    })
-}
 
 pub fn fit_gauss(
-    x: &[f64], y: &[f64], init: Vec<f64>,
-) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
-    let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
-        .function(&["x0", "sig"], gauss_basis)
-        .partial_deriv("x0", gaussian_dx0)
-        .partial_deriv("sig", gaussian_dsig)
-        .independent_variable(DVector::from_column_slice(x))
-        .initial_parameters(init)
-        .build()?;
-
-    let problem = SeparableProblemBuilder::new(model)
-        .observations(DVector::from_column_slice(y))
-        .build()?;
-
-    let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(VarproFitError::RuntimeError);
+    x: &[f64], y: &[f64], init: &[f64]
+) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+    let problem = GaussProblem {
+        x: DVector::from_column_slice(x),
+        y: DVector::from_column_slice(y),
+        p: DVector::from_column_slice(init),
     };
 
-    let nonlin = fit_result.nonlinear_parameters();
+    let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(VarproFitError::RuntimeError);
-    };
+    let fit_status = FitStatus { termination: report.termination };
 
-    let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
+    if !fit_status.termination.was_successful() {
+        return Err(LMFitError::Failure { info: fit_status.repr().into() });
+    }
 
-    let cov = stats.covariance_matrix();
+    let mut params = HashMap::new();
 
-    let errs = cov.diagonal().map(|x| x.sqrt());
-
-    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
-
-    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
-    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[1] });
-    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[1] });
+    params.insert("amp_1", SimpleFitParam { val: result.p[0], err: f64::NAN });
+    params.insert("x0_1", SimpleFitParam { val: result.p[1], err: f64::NAN });
+    params.insert("sig_1", SimpleFitParam { val: result.p[2], err: f64::NAN });
 
     Ok(params)
 }
 
-fn erf_basis(
-    x: &DVector<f64>, x0: f64, sig: f64,
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        erfc(u)
-    })
+
+struct ErfLinear1GaussProblem {
+    x: DVector<f64>,
+    y: DVector<f64>,
+    p: DVector<f64>,
 }
 
-fn erf_dx0(
-    x: &DVector<f64>, x0: f64, sig: f64,
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        let e = (-u * u).exp();
-        -TWO_OVER_SQRT_PI * e / sig
-    })
+impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear1GaussProblem {
+    type ParameterStorage = Owned<f64, Dyn>;
+    type ResidualStorage = Owned<f64, Dyn>;
+    type JacobianStorage = Owned<f64, Dyn, Dyn>;
+
+    fn set_params(&mut self, params: &DVector<f64>) {
+        self.p.copy_from(params);
+    }
+
+    fn params(&self) -> DVector<f64> {
+        self.p.clone()
+    }
+
+    fn residuals(&self) -> Option<DVector<f64>> {
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let erf_amp = self.p[3];
+        let lin = self.p[4];
+        let off = self.p[5];
+
+        let f = self.x.map(|x| {
+            let u = (x - x0_1) / sig_1;
+            amp_1 * (-0.5 * u*u).exp() + erf_amp * erfc(u) + lin * x + off
+        });
+
+        let r = &self.y - f;
+
+        Some(r)
+    }
+
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let mut j = DMatrix::zeros(self.y.len(), 6);
+
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let erf_amp = self.p[3];
+
+        for (i, x) in self.x.iter().enumerate() {
+            let u_1 = (x - x0_1) / sig_1;
+            let z_1 = u_1 / sig_1;
+            let h_1 = erf_amp * TWO_OVER_SQRT_PI * (-u_1*u_1).exp() / sig_1;
+
+            let mut e_1 = (-0.5 * u_1*u_1).exp();
+
+            j[(i, 0)] = e_1;
+
+            e_1 *= amp_1;
+
+            j[(i, 1)] = e_1 * z_1 + h_1;
+            j[(i, 2)] = e_1 * u_1 * z_1 + h_1 * u_1;
+            j[(i, 3)] = erfc(u_1);
+            j[(i, 4)] = *x;
+            j[(i, 5)] = 1.;
+        }
+
+        Some(j)
+    }
 }
 
-fn erf_dsig(
-    x: &DVector<f64>, x0: f64, sig: f64,
-) -> DVector<f64> {
-    x.map(|x| {
-        let u = (x - x0) / sig;
-        let e = (-u * u).exp();
-        TWO_OVER_SQRT_PI * e * u / sig
-    })
-}
 
-fn linear_basis(x: &DVector<f64>) -> DVector<f64> {
-    x.clone()
-}
-
-fn const_basis(x: &DVector<f64>) -> DVector<f64> {
-    DVector::from_element(x.len(), 1.)
-}
-
-/// Returns: Gauss amp, Gauss x0, Gauss sigma,
-/// erf amp, linear coeff, const coeff
 pub fn fit_erf_linear_1_gauss(
-    x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
-    let model = SeparableModelBuilder::<f64>::new(&["x0", "sig"])
-        .function(&["x0", "sig"], gauss_basis)
-        .partial_deriv("x0", gaussian_dx0)
-        .partial_deriv("sig", gaussian_dsig)
-        .function(&["x0", "sig"], erf_basis)
-        .partial_deriv("x0", erf_dx0)
-        .partial_deriv("sig", erf_dsig)
-        .invariant_function(linear_basis)
-        .invariant_function(const_basis)
-        .independent_variable(DVector::from_column_slice(x))
-        .initial_parameters(vec![511., 1.])
-        .build()?;
-
-    let weights = y
-        .iter()
-        .map(|&i| 1. / i.max(1.).sqrt())
-        .collect::<Vec<f64>>();
-
-    let problem = SeparableProblemBuilder::new(model)
-        .observations(DVector::from_column_slice(y))
-        .weights(DVector::from_vec(weights))
-        .build()?;
-
-    let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(VarproFitError::RuntimeError);
+    x: &[f64], y: &[f64], init: &[f64]
+) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+    let problem = ErfLinear1GaussProblem {
+        x: DVector::from_column_slice(x),
+        y: DVector::from_column_slice(y),
+        p: DVector::from_column_slice(init),
     };
 
-    let nonlin = fit_result.nonlinear_parameters();
+    let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(VarproFitError::RuntimeError);
-    };
+    let fit_status = FitStatus { termination: report.termination };
 
-    let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
+    if !fit_status.termination.was_successful() {
+        return Err(LMFitError::Failure { info: fit_status.repr().into() });
+    }
 
-    let cov = stats.covariance_matrix();
+    let mut params = HashMap::new();
 
-    let errs = cov.diagonal().map(|x| x.sqrt());
-
-    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
-
-    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
-    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[4] });
-    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[5] });
-    params.insert("erf_amp", SimpleFitParam { val: lin[1], err: errs[1] });
-    params.insert("lin", SimpleFitParam { val: lin[2], err: errs[2] });
-    params.insert("const", SimpleFitParam { val: lin[3], err: errs[3] });
+    params.insert("amp_1", SimpleFitParam { val: result.p[0], err: f64::NAN });
+    params.insert("x0_1", SimpleFitParam { val: result.p[1], err: f64::NAN });
+    params.insert("sig_1", SimpleFitParam { val: result.p[2], err: f64::NAN });
+    params.insert("erf_amp", SimpleFitParam { val: result.p[3], err: f64::NAN });
+    params.insert("lin", SimpleFitParam { val: result.p[4], err: f64::NAN });
+    params.insert("const", SimpleFitParam { val: result.p[5], err: f64::NAN });
 
     Ok(params)
 }
+
+
+struct ErfLinear2GaussProblem {
+    x: DVector<f64>,
+    y: DVector<f64>,
+    p: DVector<f64>,
+}
+
+impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear2GaussProblem {
+    type ParameterStorage = Owned<f64, Dyn>;
+    type ResidualStorage = Owned<f64, Dyn>;
+    type JacobianStorage = Owned<f64, Dyn, Dyn>;
+
+    fn set_params(&mut self, params: &DVector<f64>) {
+        self.p.copy_from(params);
+    }
+
+    fn params(&self) -> DVector<f64> {
+        self.p.clone()
+    }
+
+    fn residuals(&self) -> Option<DVector<f64>> {
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let amp_2 = self.p[3];
+        let x0_2 = self.p[4];
+        let sig_2 = self.p[5];
+        let erf_amp = self.p[6];
+        let lin = self.p[7];
+        let off = self.p[8];
+
+        let f = self.x.map(|x| {
+            let u_1 = (x - x0_1) / sig_1;
+            let u_2 = (x - x0_2) / sig_2;
+            amp_1 * (-0.5 * u_1*u_1).exp()
+                + amp_2 * (-0.5 * u_2*u_2).exp()
+                + erf_amp * erfc(u_1) + lin * x + off
+        });
+
+        let r = &self.y - f;
+
+        Some(r)
+    }
+
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let mut j = DMatrix::zeros(self.y.len(), 9);
+
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let amp_2 = self.p[3];
+        let x0_2 = self.p[4];
+        let sig_2 = self.p[5];
+        let erf_amp = self.p[6];
+
+        for (i, x) in self.x.iter().enumerate() {
+            let u_1 = (x - x0_1) / sig_1;
+            let z_1 = u_1 / sig_1;
+            let h_1 = erf_amp * TWO_OVER_SQRT_PI * (-u_1*u_1).exp() / sig_1;
+            let u_2 = (x - x0_2) / sig_2;
+            let z_2 = u_2 / sig_2;
+
+            let mut e_1 = (-0.5 * u_1*u_1).exp();
+            let mut e_2 = (-0.5 * u_2*u_2).exp();
+
+            j[(i, 0)] = e_1;
+            j[(i, 3)] = e_2;
+
+            e_1 *= amp_1;
+            e_2 *= amp_2;
+
+            j[(i, 1)] = e_1 * z_1 + h_1;
+            j[(i, 2)] = e_1 * u_1 * z_1 + h_1 * u_1;
+            j[(i, 4)] = e_2 * z_2;
+            j[(i, 5)] = e_2 * u_2 * z_2;
+            j[(i, 6)] = erfc(u_1);
+            j[(i, 7)] = *x;
+            j[(i, 8)] = 1.;
+        }
+
+        Some(j)
+    }
+}
+
 
 pub fn fit_erf_linear_2_gauss(
-    x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
-    let model = SeparableModelBuilder::<f64>::new(
-            &["x0_1", "sig_1", "x0_2", "sig_2"]
-        )
-        .function(&["x0_1", "sig_1"], gauss_basis)
-        .partial_deriv("x0_1", gaussian_dx0)
-        .partial_deriv("sig_1", gaussian_dsig)
-        .function(&["x0_2", "sig_2"], gauss_basis)
-        .partial_deriv("x0_2", gaussian_dx0)
-        .partial_deriv("sig_2", gaussian_dsig)
-        .function(&["x0_1", "sig_1"], erf_basis)
-        .partial_deriv("x0_1", erf_dx0)
-        .partial_deriv("sig_1", erf_dsig)
-        .invariant_function(linear_basis)
-        .invariant_function(const_basis)
-        .independent_variable(DVector::from_column_slice(x))
-        .initial_parameters(vec![511., 1., 510., 1.5])
-        .build()?;
-
-    let weights = y
-        .iter()
-        .map(|&i| 1. / i.max(1.).sqrt())
-        .collect::<Vec<f64>>();
-
-    let problem = SeparableProblemBuilder::new(model)
-        .observations(DVector::from_column_slice(y))
-        .weights(DVector::from_vec(weights))
-        .build()?;
-
-    let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(VarproFitError::RuntimeError);
+    x: &[f64], y: &[f64], init: &[f64]
+) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+    let problem = ErfLinear2GaussProblem {
+        x: DVector::from_column_slice(x),
+        y: DVector::from_column_slice(y),
+        p: DVector::from_column_slice(init),
     };
 
-    let nonlin = fit_result.nonlinear_parameters();
+    let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(VarproFitError::RuntimeError);
-    };
+    let fit_status = FitStatus { termination: report.termination };
 
-    let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
+    if !fit_status.termination.was_successful() {
+        return Err(LMFitError::Failure { info: fit_status.repr().into() });
+    }
 
-    let cov = stats.covariance_matrix();
+    let mut params = HashMap::new();
 
-    let errs = cov.diagonal().map(|x| x.sqrt());
-
-    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
-
-    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
-    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[5] });
-    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[6] });
-    params.insert("amp_2", SimpleFitParam { val: lin[1], err: errs[1] });
-    params.insert("x0_2", SimpleFitParam { val: nonlin[2], err: errs[7] });
-    params.insert("sig_2", SimpleFitParam { val: nonlin[3], err: errs[8] });
-    params.insert("erf_amp", SimpleFitParam { val: lin[2], err: errs[2] });
-    params.insert("lin", SimpleFitParam { val: lin[3], err: errs[3] });
-    params.insert("const", SimpleFitParam { val: lin[4], err: errs[4] });
+    params.insert("amp_1", SimpleFitParam { val: result.p[0], err: f64::NAN });
+    params.insert("x0_1", SimpleFitParam { val: result.p[1], err: f64::NAN });
+    params.insert("sig_1", SimpleFitParam { val: result.p[2], err: f64::NAN });
+    params.insert("amp_2", SimpleFitParam { val: result.p[3], err: f64::NAN });
+    params.insert("x0_2", SimpleFitParam { val: result.p[4], err: f64::NAN });
+    params.insert("sig_2", SimpleFitParam { val: result.p[5], err: f64::NAN });
+    params.insert("erf_amp", SimpleFitParam { val: result.p[6], err: f64::NAN });
+    params.insert("lin", SimpleFitParam { val: result.p[7], err: f64::NAN });
+    params.insert("const", SimpleFitParam { val: result.p[8], err: f64::NAN });
 
     Ok(params)
 }
+
+
+struct ErfLinear3GaussProblem {
+    x: DVector<f64>,
+    y: DVector<f64>,
+    p: DVector<f64>,
+}
+
+impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear3GaussProblem {
+    type ParameterStorage = Owned<f64, Dyn>;
+    type ResidualStorage = Owned<f64, Dyn>;
+    type JacobianStorage = Owned<f64, Dyn, Dyn>;
+
+    fn set_params(&mut self, params: &DVector<f64>) {
+        self.p.copy_from(params);
+    }
+
+    fn params(&self) -> DVector<f64> {
+        self.p.clone()
+    }
+
+    fn residuals(&self) -> Option<DVector<f64>> {
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let amp_2 = self.p[3];
+        let x0_2 = self.p[4];
+        let sig_2 = self.p[5];
+        let amp_3 = self.p[6];
+        let x0_3 = self.p[7];
+        let sig_3 = self.p[8];
+        let erf_amp = self.p[9];
+        let lin = self.p[10];
+        let off = self.p[11];
+
+        let f = self.x.map(|x| {
+            let u_1 = (x - x0_1) / sig_1;
+            let u_2 = (x - x0_2) / sig_2;
+            let u_3 = (x - x0_3) / sig_3;
+            amp_1 * (-0.5 * u_1*u_1).exp()
+                + amp_2 * (-0.5 * u_2*u_2).exp()
+                + amp_3 * (-0.5 * u_3*u_3).exp()
+                + erf_amp * erfc(u_1) + lin * x + off
+        });
+
+        let r = &self.y - f;
+
+        Some(r)
+    }
+
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let mut j = DMatrix::zeros(self.y.len(), 12);
+
+        let amp_1 = self.p[0];
+        let x0_1 = self.p[1];
+        let sig_1 = self.p[2];
+        let amp_2 = self.p[3];
+        let x0_2 = self.p[4];
+        let sig_2 = self.p[5];
+        let amp_3 = self.p[6];
+        let x0_3 = self.p[7];
+        let sig_3 = self.p[8];
+        let erf_amp = self.p[9];
+
+        for (i, x) in self.x.iter().enumerate() {
+            let u_1 = (x - x0_1) / sig_1;
+            let z_1 = u_1 / sig_1;
+            let h_1 = erf_amp * TWO_OVER_SQRT_PI * (-u_1*u_1).exp() / sig_1;
+            let u_2 = (x - x0_2) / sig_2;
+            let z_2 = u_2 / sig_2;
+            let u_3 = (x - x0_3) / sig_3;
+            let z_3 = u_3 / sig_3;
+
+            let mut e_1 = (-0.5 * u_1*u_1).exp();
+            let mut e_2 = (-0.5 * u_2*u_2).exp();
+            let mut e_3 = (-0.5 * u_3*u_3).exp();
+
+            j[(i, 0)] = e_1;
+            j[(i, 3)] = e_2;
+            j[(i, 6)] = e_3;
+
+            e_1 *= amp_1;
+            e_2 *= amp_2;
+            e_3 *= amp_3;
+
+            j[(i, 1)] = e_1 * z_1 + h_1;
+            j[(i, 2)] = e_1 * u_1 * z_1 + h_1 * u_1;
+            j[(i, 4)] = e_2 * z_2;
+            j[(i, 5)] = e_2 * u_2 * z_2;
+            j[(i, 7)] = e_3 * z_3;
+            j[(i, 8)] = e_3 * u_3 * z_3;
+            j[(i, 9)] = erfc(u_1);
+            j[(i, 10)] = *x;
+            j[(i, 11)] = 1.;
+        }
+
+        Some(j)
+    }
+}
+
 
 pub fn fit_erf_linear_3_gauss(
-    x: &[f64], y: &[f64],
-) -> Result<HashMap<&'static str, SimpleFitParam>, VarproFitError> {
-    let model = SeparableModelBuilder::<f64>::new(
-            &["x0_1", "sig_1", "x0_2", "sig_2", "x0_3", "sig_3"]
-        )
-        .function(&["x0_1", "sig_1"], gauss_basis)
-        .partial_deriv("x0_1", gaussian_dx0)
-        .partial_deriv("sig_1", gaussian_dsig)
-        .function(&["x0_2", "sig_2"], gauss_basis)
-        .partial_deriv("x0_2", gaussian_dx0)
-        .partial_deriv("sig_2", gaussian_dsig)
-        .function(&["x0_3", "sig_3"], gauss_basis)
-        .partial_deriv("x0_3", gaussian_dx0)
-        .partial_deriv("sig_3", gaussian_dsig)
-        .function(&["x0_1", "sig_1"], erf_basis)
-        .partial_deriv("x0_1", erf_dx0)
-        .partial_deriv("sig_1", erf_dsig)
-        .invariant_function(linear_basis)
-        .invariant_function(const_basis)
-        .independent_variable(DVector::from_column_slice(x))
-        .initial_parameters(vec![511., 1., 510., 1.5, 509., 2.0])
-        .build()?;
-
-    let weights = y
-        .iter()
-        .map(|&i| 1. / i.max(1.).sqrt())
-        .collect::<Vec<f64>>();
-
-    let problem = SeparableProblemBuilder::new(model)
-        .observations(DVector::from_column_slice(y))
-        .weights(DVector::from_vec(weights))
-        .build()?;
-
-    let Ok(fit_result) = LevMarSolver::default().solve(problem) else {
-        return Err(VarproFitError::RuntimeError);
+    x: &[f64], y: &[f64], init: &[f64]
+) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+    let problem = ErfLinear3GaussProblem {
+        x: DVector::from_column_slice(x),
+        y: DVector::from_column_slice(y),
+        p: DVector::from_column_slice(init),
     };
 
-    let nonlin = fit_result.nonlinear_parameters();
+    let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let Some(lin) = fit_result.linear_coefficients() else {
-        return Err(VarproFitError::RuntimeError);
-    };
+    let fit_status = FitStatus { termination: report.termination };
 
-    let stats = varpro::statistics::FitStatistics::try_from(&fit_result)?;
+    if !fit_status.termination.was_successful() {
+        return Err(LMFitError::Failure { info: fit_status.repr().into() });
+    }
 
-    let cov = stats.covariance_matrix();
+    let mut params = HashMap::new();
 
-    let errs = cov.diagonal().map(|x| x.sqrt());
-
-    let mut params = HashMap::<&'static str, SimpleFitParam>::new();
-
-    params.insert("amp_1", SimpleFitParam { val: lin[0], err: errs[0] });
-    params.insert("x0_1", SimpleFitParam { val: nonlin[0], err: errs[6] });
-    params.insert("sig_1", SimpleFitParam { val: nonlin[1], err: errs[7] });
-    params.insert("amp_2", SimpleFitParam { val: lin[1], err: errs[1] });
-    params.insert("x0_2", SimpleFitParam { val: nonlin[2], err: errs[8] });
-    params.insert("sig_2", SimpleFitParam { val: nonlin[3], err: errs[9] });
-    params.insert("amp_3", SimpleFitParam { val: lin[2], err: errs[2] });
-    params.insert("x0_3", SimpleFitParam { val: nonlin[2], err: errs[10] });
-    params.insert("sig_3", SimpleFitParam { val: nonlin[3], err: errs[11] });
-    params.insert("erf_amp", SimpleFitParam { val: lin[3], err: errs[3] });
-    params.insert("lin", SimpleFitParam { val: lin[4], err: errs[4] });
-    params.insert("const", SimpleFitParam { val: lin[5], err: errs[5] });
+    params.insert("amp_1", SimpleFitParam { val: result.p[0], err: f64::NAN });
+    params.insert("x0_1", SimpleFitParam { val: result.p[1], err: f64::NAN });
+    params.insert("sig_1", SimpleFitParam { val: result.p[2], err: f64::NAN });
+    params.insert("amp_2", SimpleFitParam { val: result.p[3], err: f64::NAN });
+    params.insert("x0_2", SimpleFitParam { val: result.p[4], err: f64::NAN });
+    params.insert("sig_2", SimpleFitParam { val: result.p[5], err: f64::NAN });
+    params.insert("amp_3", SimpleFitParam { val: result.p[6], err: f64::NAN });
+    params.insert("x0_3", SimpleFitParam { val: result.p[7], err: f64::NAN });
+    params.insert("sig_3", SimpleFitParam { val: result.p[8], err: f64::NAN });
+    params.insert("erf_amp", SimpleFitParam { val: result.p[9], err: f64::NAN });
+    params.insert("lin", SimpleFitParam { val: result.p[10], err: f64::NAN });
+    params.insert("const", SimpleFitParam { val: result.p[11], err: f64::NAN });
 
     Ok(params)
 }
+
 
 pub fn erf_linear_background(
     x: &[f64], amp: f64, x0: f64, sig: f64, lin: f64, off: f64
