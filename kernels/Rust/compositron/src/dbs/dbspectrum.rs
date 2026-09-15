@@ -11,7 +11,7 @@ use crate::core::utils::{
     spectrum_match, EnergyDetector, LossyIntoF64, Spectrum,EcalCorrectionOrder,
     Unit
 };
-use crate::core::fitting::{self, LMFitError, VarproFitError};
+use crate::core::fitting::{self, LMFitError};
 use crate::dbs::fitting::*;
 
 

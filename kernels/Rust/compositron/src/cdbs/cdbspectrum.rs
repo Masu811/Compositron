@@ -24,7 +24,7 @@ use crate::cdbs::anti_aliasing::{
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
 use crate::cdbs::fitting::fit_gauss2d;
-use crate::constants::M_E_KEV;
+use crate::constants::{FWHM_OVER_SIGMA, M_E_KEV};
 use crate::core::fitting::{self, LMFitError};
 use crate::core::utils::{
     spectrum2d_match, EcalCorrectionOrder, EnergyDetector, EnergyDetectorPair,
@@ -838,15 +838,15 @@ impl CDBSpectrum {
             self.detpair.second_det.ecal
         );
 
-        let nrows = peak_bnds.0.1 - peak_bnds.0.0;
-        let ncols = peak_bnds.1.1 - peak_bnds.1.0;
+        let nrows = peak_bnds.0.1 - peak_bnds.0.0 + 1;
+        let ncols = peak_bnds.1.1 - peak_bnds.1.0 + 1;
 
         let x = DVector::from_iterator(
-            ncols, (peak_bnds.1.0..peak_bnds.1.1).map(|i| ecal_2.from_index(i))
+            ncols, (peak_bnds.1.0..=peak_bnds.1.1).map(|i| ecal_2.from_index(i))
         );
 
         let y = DVector::from_iterator(
-            nrows, (peak_bnds.0.0..peak_bnds.0.1).map(|i| ecal_1.from_index(i))
+            nrows, (peak_bnds.0.0..=peak_bnds.0.1).map(|i| ecal_1.from_index(i))
         );
 
         self.peak_params = match bg_model {
@@ -871,6 +871,15 @@ impl CDBSpectrum {
                 fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, phi])?
             },
         };
+
+        if self.detpair.eres.is_none() {
+            let sig_x = self.peak_params.get("sig_x").unwrap();
+            let sig_y = self.peak_params.get("sig_y").unwrap();
+
+            let sig = sig_x.val.min(sig_y.val);
+
+            self.detpair.eres = Some(sig * FWHM_OVER_SIGMA);
+        }
 
         Ok(())
     }
@@ -917,8 +926,8 @@ impl CDBSpectrum {
         let first_col = (first_col_e as usize).min(self.spectrum.ncols() - 1);
         let last_col = ((last_col_e + 1.) as usize).min(self.spectrum.ncols() - 1);
 
-        let nrows = last_row - first_row;
-        let ncols = last_col - first_col;
+        let nrows = last_row - first_row + 1;
+        let ncols = last_col - first_col + 1;
 
         self.peak = Some(spectrum2d_match!(&self.spectrum, arr => {
             let view = arr.view((first_row, first_col), (nrows, ncols));
@@ -940,7 +949,7 @@ impl CDBSpectrum {
             return Ok(());
         }
 
-        if self.peak == None {
+        if self.peak.is_none() {
             self.extract_peak((4., 4.), BackgroundModel::None);
         }
 
