@@ -98,6 +98,7 @@ pub fn fit_gauss(
 struct ErfLinear1GaussProblem {
     x: DVector<f64>,
     y: DVector<f64>,
+    w: DVector<f64>,
     p: DVector<f64>,
 }
 
@@ -127,7 +128,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear1GaussProblem {
             amp_1 * (-0.5 * u*u).exp() + erf_amp * erfc(u) + lin * x + off
         });
 
-        let r = &self.y - f;
+        let r = (f - &self.y).component_mul(&self.w);
 
         Some(r)
     }
@@ -158,6 +159,10 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear1GaussProblem {
             j[(i, 5)] = 1.;
         }
 
+        for mut col in j.column_iter_mut() {
+            col.component_mul_assign(&self.w);
+        }
+
         Some(j)
     }
 }
@@ -169,6 +174,7 @@ pub fn fit_erf_linear_1_gauss(
     let problem = ErfLinear1GaussProblem {
         x: DVector::from_column_slice(x),
         y: DVector::from_column_slice(y),
+        w: DVector::from_iterator(y.len(), y.iter().map(|y_i| 1. / y_i.max(1.).sqrt())),
         p: DVector::from_column_slice(init),
     };
 
@@ -196,6 +202,7 @@ pub fn fit_erf_linear_1_gauss(
 struct ErfLinear2GaussProblem {
     x: DVector<f64>,
     y: DVector<f64>,
+    w: DVector<f64>,
     p: DVector<f64>,
 }
 
@@ -231,7 +238,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear2GaussProblem {
                 + erf_amp * erfc(u_1) + lin * x + off
         });
 
-        let r = &self.y - f;
+        let r = (f - &self.y).component_mul(&self.w);
 
         Some(r)
     }
@@ -272,6 +279,10 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear2GaussProblem {
             j[(i, 8)] = 1.;
         }
 
+        for mut col in j.column_iter_mut() {
+            col.component_mul_assign(&self.w);
+        }
+
         Some(j)
     }
 }
@@ -283,10 +294,11 @@ pub fn fit_erf_linear_2_gauss(
     let problem = ErfLinear2GaussProblem {
         x: DVector::from_column_slice(x),
         y: DVector::from_column_slice(y),
+        w: DVector::from_iterator(y.len(), y.iter().map(|y_i| 1. / y_i.max(1.).sqrt())),
         p: DVector::from_column_slice(init),
     };
 
-    let (result, report) = LevenbergMarquardt::new().minimize(problem);
+    let (result, report) = LevenbergMarquardt::new().with_patience(1000).minimize(problem);
 
     let fit_status = FitStatus { termination: report.termination };
 
@@ -313,6 +325,7 @@ pub fn fit_erf_linear_2_gauss(
 struct ErfLinear3GaussProblem {
     x: DVector<f64>,
     y: DVector<f64>,
+    w: DVector<f64>,
     p: DVector<f64>,
 }
 
@@ -353,7 +366,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear3GaussProblem {
                 + erf_amp * erfc(u_1) + lin * x + off
         });
 
-        let r = &self.y - f;
+        let r = (f - &self.y).component_mul(&self.w);
 
         Some(r)
     }
@@ -404,6 +417,10 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear3GaussProblem {
             j[(i, 11)] = 1.;
         }
 
+        for mut col in j.column_iter_mut() {
+            col.component_mul_assign(&self.w);
+        }
+
         Some(j)
     }
 }
@@ -415,6 +432,7 @@ pub fn fit_erf_linear_3_gauss(
     let problem = ErfLinear3GaussProblem {
         x: DVector::from_column_slice(x),
         y: DVector::from_column_slice(y),
+        w: DVector::from_iterator(y.len(), y.iter().map(|y_i| 1. / y_i.max(1.).sqrt())),
         p: DVector::from_column_slice(init),
     };
 

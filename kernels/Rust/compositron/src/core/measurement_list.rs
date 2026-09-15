@@ -32,11 +32,17 @@ impl MeasurementList {
         let mut mlist = MeasurementList::new();
         mlist.measurements.reserve(n_files);
 
-        let files = std::fs::read_dir(path)?
+        let mut files = std::fs::read_dir(path)?
             .filter_map(Result::ok)
-            .filter(|x| x.path().extension().and_then(|ext| ext.to_str()) == Some(ext));
+            .filter(|x| x.path().extension().and_then(|ext| ext.to_str()) == Some(ext))
+            .collect::<Vec<_>>();
 
-        for (i, file) in files.enumerate() {
+        files.sort_by(|a, b| natord::compare(
+            &a.file_name().to_string_lossy(),
+            &b.file_name().to_string_lossy(),
+        ));
+
+        for (i, file) in files.iter().enumerate() {
             let m = Measurement::from_file(
                 file
                     .path()

@@ -207,7 +207,7 @@ impl DBSpectrum {
         let max = y.iter().max_by(|&a, &b| a.total_cmp(b)).map_or(100., |&x| x);
 
         if peak_model == PeakModel::Gauss {
-            self.peak_params = fit_gauss(&x, &y, &vec![max, 511., 1.])?;
+            self.peak_params.extend(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
             return Ok(());
         }
 
@@ -216,19 +216,19 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::ErfLinear1Gauss => {
-                self.peak_params = fit_erf_linear_1_gauss(
+                self.peak_params.extend(fit_erf_linear_1_gauss(
                     &x, &y, &vec![max, 511., 1., erf_amp, 0., min]
-                )?;
+                )?);
             },
             PeakModel::ErfLinear2Gauss => {
-                self.peak_params = fit_erf_linear_2_gauss(
+                self.peak_params.extend(fit_erf_linear_2_gauss(
                     &x, &y, &vec![max / 2., 511., 1., max / 2., 511., 1.5, erf_amp, 0., min]
-                )?;
+                )?);
             },
             PeakModel::ErfLinear3Gauss => {
-                self.peak_params = fit_erf_linear_3_gauss(
+                self.peak_params.extend(fit_erf_linear_3_gauss(
                     &x, &y, &vec![max / 3., 511., 1., max / 3., 511., 1.5, max / 3., 511., 2.0, erf_amp, 0., min]
-                )?;
+                )?);
             },
             PeakModel::Gauss => unreachable!(),
         }
@@ -287,6 +287,8 @@ impl DBSpectrum {
         ));
 
         self.peak_bnd_idcs = Some((left_peak_idx, right_peak_idx));
+
+        self.peak_counts = Some(self.peak.as_ref().unwrap().iter().sum());
 
         self.subtract_bg(peak_model)?;
 

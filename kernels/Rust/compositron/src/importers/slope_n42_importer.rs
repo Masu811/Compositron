@@ -813,10 +813,15 @@ pub fn import_n42(filename: &str) -> Result<Measurement, ImportError> {
 
     let root = doc.root_element();
 
-    import_m(&root, &path).map_err(
+    let mut m = import_m(&root, &path).map_err(
         |err| ImportError::InvalidN42FormatError {
             inner: err,
             path: filename.into(),
         }
-    )
+    )?;
+
+    m.name = Some(filename.into());
+    m.filename = Some(filename.into());
+
+    Ok(m)
 }
