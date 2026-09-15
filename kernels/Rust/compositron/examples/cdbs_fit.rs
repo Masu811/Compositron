@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut m = Measurement::from_file(
         "../../../../testdata/depth-profile_Copper_0000.n42",
-        DataFormat::SlopeN42
+        &DataFormat::SlopeN42
     )?;
 
     let c = m.cdbs.get_mut("OAA x OAB").unwrap();
@@ -45,21 +45,21 @@ fn main() -> anyhow::Result<()> {
 
     // Projection onto diagonal
 
-    // let p = c.project(
-    //     Axis::CEL,
-    //     ProjectionBins::Linear(Unit::KeV(0.1)),
-    //     Unit::KeV(2.),
-    //     Unit::KeV(10.),
-    //     false
-    // )?;
+    let p = c.project(
+        Axis::CEL,
+        ProjectionBins::Linear(Unit::KeV(0.1)),
+        Unit::KeV(2.),
+        Unit::KeV(10.),
+        false
+    )?;
 
-    // // Write projection to file for inspection
+    // Write projection to file for inspection
 
-    // let mut f = std::fs::File::create("projection.csv").unwrap();
+    let mut f = std::fs::File::create("projection.csv").unwrap();
 
-    // for elem in p.spectrum.iter() {
-    //     write!(f, "{elem}\n").unwrap();
-    // }
+    for elem in p.spectrum.iter() {
+        write!(f, "{elem}\n").unwrap();
+    }
 
     Ok(())
 }

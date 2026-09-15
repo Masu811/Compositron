@@ -24,7 +24,8 @@ fn main() -> anyhow::Result<(), ImportError> {
     let filename = "";
 
     let _ = Measurement::from_file(
-        filename, DataFormat::Custom { importer: import_csv }
+        filename,
+        &DataFormat::Custom { importer: import_csv, extension: "csv".into() }
     )?;
 
     Ok(())

@@ -43,14 +43,16 @@ impl Measurement {
     }
 
     pub fn from_file(
-        filepath: &str, format: DataFormat
+        filepath: &str, format: &DataFormat
     ) -> Result<Self, ImportError> {
         Ok(match format {
             DataFormat::SlopeN42 => import_n42(filepath)?,
             DataFormat::MePSDat => import_meps_dat(filepath)?,
-            DataFormat::Custom { importer } => importer(filepath).map_err(
-                |err| ImportError::CustomImporterError { source: err }
-            )?
+            DataFormat::Custom { importer, extension: _ } => {
+                importer(filepath).map_err(
+                    |err| ImportError::CustomImporterError { source: err }
+                )?
+            }
         })
     }
 

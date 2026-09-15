@@ -8,6 +8,12 @@ use crate::core::Measurement;
 #[derive(Debug, Error)]
 pub enum ImportError {
     #[error("Error during data import")]
+    IOError {
+        #[from]
+        source: std::io::Error,
+    },
+
+    #[error("Error during data import")]
     SlopeN42ImportError {
         #[from]
         source: slope_n42_importer::ImportError,
@@ -26,11 +32,12 @@ pub enum ImportError {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum DataFormat {
     SlopeN42,
     MePSDat,
     Custom {
         importer: fn (&str) -> Result<Measurement, Box<dyn std::error::Error + Send + Sync>>,
+        extension: String,
     }
 }

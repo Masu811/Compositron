@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
         let start = Instant::now();
         let mut m = Measurement::from_file(
             "../../../../testdata/depth-profile_Copper_0000.n42",
-            DataFormat::SlopeN42
+            &DataFormat::SlopeN42
         )?;
         imports.push(start.elapsed().as_nanos());
 

@@ -5,7 +5,7 @@ use compositron::core::utils::{EnergyDetector, EnergyDetectorPair, FromRowMajor,
 use compositron::cdbs::cdbspectrum::{
     Area, Axis, LineshapeParamDefinition, Orientation, ProjectionBins, CDBSpectrum
 };
-use compositron::importers::{DataFormat, ImportError};
+use compositron::importers::DataFormat;
 use compositron::spectrum2d_match;
 use thiserror::Error;
 
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     let mut m = Measurement::from_file(
         "../../../../testdata/coinc_spectrum_481.000000_0.010000.txt",
         // "../../../../testdata/coinc_spectrum_rot_-21.214907_0.007072.txt",
-        DataFormat::Custom { importer: import_csv }
+        &DataFormat::Custom { importer: import_csv, extension: "txt".into() }
     )?;
 
     let c = m.cdbs.get_mut("A x B").unwrap();
