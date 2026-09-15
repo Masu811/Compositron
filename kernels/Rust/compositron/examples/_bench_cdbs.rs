@@ -63,11 +63,11 @@ fn main() -> anyhow::Result<()> {
         };
 
         let start = Instant::now();
-        let s = c.calc_lineshape_param(&ls_param)?;
+        let _ = c.calc_lineshape_param(&ls_param)?;
         s_calc.push(start.elapsed().as_nanos());
 
         let start = Instant::now();
-        let p = c.project(
+        let _ = c.project(
             Axis::CEL,
             ProjectionBins::Linear(Unit::KeV(0.1)),
             Unit::KeV(2.),
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         proj_diag.push(start.elapsed().as_nanos());
 
         let start = Instant::now();
-        let p = c.project_axes(Axis::FirstDet);
+        let _ = c.project_axes(Axis::FirstDet);
         proj_axes.push(start.elapsed().as_nanos());
     }
 

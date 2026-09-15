@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::constants::FWHM_OVER_SIGMA;
 use crate::core::utils::{spectrum_match, TimingDetectorPair, Spectrum};
-use crate::core::fitting::{FitParam, LMFitError, SimpleFitParam, VarproFitError};
+use crate::core::fitting::{FitParam, LMFitError, SimpleFitParam};
 use crate::dbs::fitting::fit_gauss;
 use crate::pals::fitting::{fit_lifetime_spectrum, FitResult};
 use crate::pals::model::*;
@@ -16,12 +16,6 @@ pub enum AnalysisError {
     LMFitError {
         #[from]
         source: LMFitError
-    },
-
-    #[error("Fit failed")]
-    VarproFitError {
-        #[from]
-        source: VarproFitError
     },
 }
 

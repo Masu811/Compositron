@@ -1,33 +1,6 @@
 use levenberg_marquardt::TerminationReason;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum VarproFitError {
-    #[error("Data contains only NaN values")]
-    AllNANValues,
-
-    #[error("ModelBuilderError")]
-    ModelBuilderError {
-        #[from]
-        inner: varpro::model::builder::error::ModelBuildError,
-    },
-
-    #[error("SeparableProblemBuilderError")]
-    SeparableProblemBuilderError {
-        #[from]
-        inner: varpro::problem::SeparableProblemBuilderError,
-    },
-
-    #[error("StatisticsError")]
-    StatisticsError {
-        #[from]
-        inner: varpro::statistics::Error<varpro::model::errors::ModelError>,
-    },
-
-    #[error("Something went wrong during least squares fit")]
-    RuntimeError,
-}
-
 #[derive(Debug)]
 pub struct SimpleFitParam {
     pub val: f64,

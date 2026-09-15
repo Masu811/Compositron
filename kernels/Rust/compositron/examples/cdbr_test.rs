@@ -7,17 +7,6 @@ use compositron::cdbs::cdbspectrum::{
 };
 use compositron::importers::DataFormat;
 use compositron::spectrum2d_match;
-use thiserror::Error;
-
-
-#[derive(Debug, Error)]
-enum MyCustomImportError {
-    #[error("I/O Error")]
-    IOError {
-        #[from]
-        inner: std::io::Error
-    }
-}
 
 
 fn import_csv(

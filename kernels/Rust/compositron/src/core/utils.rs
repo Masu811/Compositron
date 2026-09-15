@@ -1,29 +1,8 @@
 use num_traits::Unsigned;
-use thiserror::Error;
 use nalgebra::{DMatrix, DVector};
 
 use crate::constants::KEV_PER_M0C;
 
-#[derive(Debug, Error)]
-pub enum FitError {
-    #[error("Data contains only NaN values")]
-    AllNANValues,
-
-    #[error("ModelBuilderError")]
-    ModelBuilderError {
-        #[from]
-        inner: varpro::model::builder::error::ModelBuildError,
-    },
-
-    #[error("SeparableProblemBuilderError")]
-    SeparableProblemBuilderError {
-        #[from]
-        inner: varpro::problem::SeparableProblemBuilderError,
-    },
-
-    #[error("Something went wrong during least squares fit")]
-    RuntimeError,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct LinearCalibration {
