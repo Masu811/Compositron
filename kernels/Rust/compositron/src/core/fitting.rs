@@ -1,4 +1,5 @@
-use levenberg_marquardt::TerminationReason;
+use levenberg_marquardt::{LeastSquaresProblem, MinimizationReport, TerminationReason};
+use nalgebra::{DMatrix, DVector, Dyn};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -209,5 +210,68 @@ impl FitStatus {
 impl std::fmt::Display for FitStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.repr())
+    }
+}
+
+#[derive(Debug)]
+pub struct FitStatistics {
+    pub fit_status: TerminationReason,
+    pub n_eval: usize,
+    pub red_chi2: f64,
+    pub cov: Option<DMatrix<f64>>,
+    pub err: Option<DVector<f64>>,
+}
+
+pub trait BoundedLeastSquaresProblem: LeastSquaresProblem<f64, Dyn, Dyn> {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64>;
+
+    fn param_data(&self, i: usize) -> &FitParam;
+
+    fn stats(&self, report: MinimizationReport<f64>) -> Option<FitStatistics> {
+        let r = self.residuals()?;
+        let mut j = self.jacobian()?;
+
+        let m = r.len();
+        let n = j.ncols();
+
+        let dof = (m - n) as f64;
+        let red_chi2 = r.norm_squared() / dof;
+
+        let mut stats = FitStatistics {
+            fit_status: report.termination,
+            n_eval: report.number_of_evaluations,
+            red_chi2: red_chi2,
+            cov: None,
+            err: None,
+        };
+
+        let p = self.params();
+
+        let d = DVector::from_iterator(
+            p.len(),
+            p
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| self.diffs()[i](p, &self.param_data(i)))
+        );
+
+        for i in 0..p.len() {
+            j.column_mut(i).scale_mut(1. / (d[i] + 1e-6));
+        }
+
+        let jtj = j.transpose() * &j;
+
+        let Some(jtj_inv) = jtj.try_inverse() else {
+            return Some(stats);
+        };
+
+        let cov = jtj_inv * red_chi2;
+
+        let err = cov.diagonal().map(|v| v.sqrt());
+
+        stats.cov = Some(cov);
+        stats.err = Some(err);
+
+        Some(stats)
     }
 }

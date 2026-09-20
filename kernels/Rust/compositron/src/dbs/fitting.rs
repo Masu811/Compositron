@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn, Owned};
 use statrs::function::erf::erfc;
 
-use crate::core::fitting::{FitParam, FitStatus, LMFitError, SimpleFitParam};
+use crate::core::fitting::{BoundedLeastSquaresProblem, FitParam, FitStatistics, FitStatus, LMFitError, SimpleFitParam};
 
 use crate::constants::TWO_OVER_SQRT_PI;
 
@@ -83,9 +81,33 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for GaussProblem {
 }
 
 
+impl BoundedLeastSquaresProblem for GaussProblem {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64> {
+        &self.diffs
+    }
+
+    fn param_data(&self, i: usize) -> &FitParam {
+        &self.params[i]
+    }
+}
+
+
+pub struct GaussParams {
+    pub amplitude: SimpleFitParam,
+    pub center: SimpleFitParam,
+    pub sigma: SimpleFitParam,
+}
+
+
+pub struct GaussFitResult {
+    pub params: GaussParams,
+    pub stats: FitStatistics,
+}
+
+
 pub fn fit_gauss<'a>(
     x: &[f64], y: &[f64], init: &[f64]
-) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+) -> Result<GaussFitResult, LMFitError> {
     let mut params = Vec::new();
 
     params.push(FitParam::new(init[0]).min(0.));  // amp_1
@@ -114,25 +136,23 @@ pub fn fit_gauss<'a>(
 
     let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let fit_status = FitStatus { termination: report.termination };
-
-    if !fit_status.termination.was_successful() {
+    if !report.termination.was_successful() {
+        let fit_status = FitStatus { termination: report.termination };
         return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
-    let mut opt = Vec::new();
+    let stats = result.stats(report).unwrap();
 
-    for i in 0..init.len() {
-        opt.push(result.transforms[i](result.p[i], &result.params[i]));
-    }
+    let errs = stats.err.clone().unwrap_or(DVector::from_element(p.len(), f64::NAN));
+    let vals = result.transformed_params;
 
-    let mut params = HashMap::new();
+    let params = GaussParams {
+        amplitude: SimpleFitParam { val: vals[0], err: errs[0] },
+        center: SimpleFitParam { val: vals[1], err: errs[1] },
+        sigma: SimpleFitParam { val: vals[2], err: errs[2] },
+    };
 
-    params.insert("amp_1", SimpleFitParam { val: opt[0], err: f64::NAN });
-    params.insert("x0_1", SimpleFitParam { val: opt[1], err: f64::NAN });
-    params.insert("sig_1", SimpleFitParam { val: opt[2], err: f64::NAN });
-
-    Ok(params)
+    Ok(GaussFitResult { params, stats })
 }
 
 
@@ -226,9 +246,36 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear1GaussProblem {
 }
 
 
+impl BoundedLeastSquaresProblem for ErfLinear1GaussProblem {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64> {
+        &self.diffs
+    }
+
+    fn param_data(&self, i: usize) -> &FitParam {
+        &self.params[i]
+    }
+}
+
+
+pub struct ErfLinear1GaussParams {
+    pub gauss_amplitude: SimpleFitParam,
+    pub center: SimpleFitParam,
+    pub sigma: SimpleFitParam,
+    pub erf_amplitude: SimpleFitParam,
+    pub bg_linear_coeff: SimpleFitParam,
+    pub bg_const_coeff: SimpleFitParam,
+}
+
+
+pub struct ErfLinear1GaussFitResult {
+    pub params: ErfLinear1GaussParams,
+    pub stats: FitStatistics,
+}
+
+
 pub fn fit_erf_linear_1_gauss(
     x: &[f64], y: &[f64], init: &[f64]
-) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+) -> Result<ErfLinear1GaussFitResult, LMFitError> {
     let mut params = Vec::new();
 
     params.push(FitParam::new(init[0]).min(0.));  // amp_1
@@ -261,28 +308,26 @@ pub fn fit_erf_linear_1_gauss(
 
     let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let fit_status = FitStatus { termination: report.termination };
-
-    if !fit_status.termination.was_successful() {
+    if !report.termination.was_successful() {
+        let fit_status = FitStatus { termination: report.termination };
         return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
-    let mut opt = Vec::new();
+    let stats = result.stats(report).unwrap();
 
-    for i in 0..init.len() {
-        opt.push(result.transforms[i](result.p[i], &result.params[i]));
-    }
+    let errs = stats.err.clone().unwrap_or(DVector::from_element(p.len(), f64::NAN));
+    let vals = result.transformed_params;
 
-    let mut params = HashMap::new();
+    let params = ErfLinear1GaussParams {
+        gauss_amplitude: SimpleFitParam { val: vals[0], err: errs[0] },
+        center: SimpleFitParam { val: vals[1], err: errs[1] },
+        sigma: SimpleFitParam { val: vals[2], err: errs[2] },
+        erf_amplitude: SimpleFitParam { val: vals[3], err: errs[3] },
+        bg_linear_coeff: SimpleFitParam { val: vals[4], err: errs[4] },
+        bg_const_coeff: SimpleFitParam { val: vals[5], err: errs[5] },
+    };
 
-    params.insert("amp_1", SimpleFitParam { val: opt[0], err: f64::NAN });
-    params.insert("x0_1", SimpleFitParam { val: opt[1], err: f64::NAN });
-    params.insert("sig_1", SimpleFitParam { val: opt[2], err: f64::NAN });
-    params.insert("erf_amp", SimpleFitParam { val: opt[3], err: f64::NAN });
-    params.insert("lin", SimpleFitParam { val: opt[4], err: f64::NAN });
-    params.insert("const", SimpleFitParam { val: opt[5], err: f64::NAN });
-
-    Ok(params)
+    Ok(ErfLinear1GaussFitResult { params, stats })
 }
 
 
@@ -395,9 +440,39 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear2GaussProblem {
 }
 
 
+impl BoundedLeastSquaresProblem for ErfLinear2GaussProblem {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64> {
+        &self.diffs
+    }
+
+    fn param_data(&self, i: usize) -> &FitParam {
+        &self.params[i]
+    }
+}
+
+
+pub struct ErfLinear2GaussParams {
+    pub gauss_1_amplitude: SimpleFitParam,
+    pub gauss_1_center: SimpleFitParam,
+    pub gauss_1_sigma: SimpleFitParam,
+    pub gauss_2_amplitude: SimpleFitParam,
+    pub gauss_2_center: SimpleFitParam,
+    pub gauss_2_sigma: SimpleFitParam,
+    pub erf_amplitude: SimpleFitParam,
+    pub bg_linear_coeff: SimpleFitParam,
+    pub bg_const_coeff: SimpleFitParam,
+}
+
+
+pub struct ErfLinear2GaussFitResult {
+    pub params: ErfLinear2GaussParams,
+    pub stats: FitStatistics,
+}
+
+
 pub fn fit_erf_linear_2_gauss(
     x: &[f64], y: &[f64], init: &[f64]
-) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+) -> Result<ErfLinear2GaussFitResult, LMFitError> {
     let mut params = Vec::new();
 
     params.push(FitParam::new(init[0]).min(0.));  // amp_1
@@ -433,31 +508,29 @@ pub fn fit_erf_linear_2_gauss(
 
     let (result, report) = LevenbergMarquardt::new().with_patience(1000).minimize(problem);
 
-    let fit_status = FitStatus { termination: report.termination };
-
-    if !fit_status.termination.was_successful() {
+    if !report.termination.was_successful() {
+        let fit_status = FitStatus { termination: report.termination };
         return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
-    let mut opt = Vec::new();
+    let stats = result.stats(report).unwrap();
 
-    for i in 0..init.len() {
-        opt.push(result.transforms[i](result.p[i], &result.params[i]));
-    }
+    let errs = stats.err.clone().unwrap_or(DVector::from_element(p.len(), f64::NAN));
+    let vals = result.transformed_params;
 
-    let mut params = HashMap::new();
+    let params = ErfLinear2GaussParams {
+        gauss_1_amplitude: SimpleFitParam { val: vals[0], err: errs[0] },
+        gauss_1_center: SimpleFitParam { val: vals[1], err: errs[1] },
+        gauss_1_sigma: SimpleFitParam { val: vals[2], err: errs[2] },
+        gauss_2_amplitude: SimpleFitParam { val: vals[3], err: errs[3] },
+        gauss_2_center: SimpleFitParam { val: vals[4], err: errs[4] },
+        gauss_2_sigma: SimpleFitParam { val: vals[5], err: errs[5] },
+        erf_amplitude: SimpleFitParam { val: vals[6], err: errs[6] },
+        bg_linear_coeff: SimpleFitParam { val: vals[7], err: errs[7] },
+        bg_const_coeff: SimpleFitParam { val: vals[8], err: errs[8] },
+    };
 
-    params.insert("amp_1", SimpleFitParam { val: opt[0], err: f64::NAN });
-    params.insert("x0_1", SimpleFitParam { val: opt[1], err: f64::NAN });
-    params.insert("sig_1", SimpleFitParam { val: opt[2], err: f64::NAN });
-    params.insert("amp_2", SimpleFitParam { val: opt[3], err: f64::NAN });
-    params.insert("x0_2", SimpleFitParam { val: opt[4], err: f64::NAN });
-    params.insert("sig_2", SimpleFitParam { val: opt[5], err: f64::NAN });
-    params.insert("erf_amp", SimpleFitParam { val: opt[6], err: f64::NAN });
-    params.insert("lin", SimpleFitParam { val: opt[7], err: f64::NAN });
-    params.insert("const", SimpleFitParam { val: opt[8], err: f64::NAN });
-
-    Ok(params)
+    Ok(ErfLinear2GaussFitResult { params, stats })
 }
 
 
@@ -588,9 +661,42 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for ErfLinear3GaussProblem {
 }
 
 
+impl BoundedLeastSquaresProblem for ErfLinear3GaussProblem {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64> {
+        &self.diffs
+    }
+
+    fn param_data(&self, i: usize) -> &FitParam {
+        &self.params[i]
+    }
+}
+
+
+pub struct ErfLinear3GaussParams {
+    pub gauss_1_amplitude: SimpleFitParam,
+    pub gauss_1_center: SimpleFitParam,
+    pub gauss_1_sigma: SimpleFitParam,
+    pub gauss_2_amplitude: SimpleFitParam,
+    pub gauss_2_center: SimpleFitParam,
+    pub gauss_2_sigma: SimpleFitParam,
+    pub gauss_3_amplitude: SimpleFitParam,
+    pub gauss_3_center: SimpleFitParam,
+    pub gauss_3_sigma: SimpleFitParam,
+    pub erf_amplitude: SimpleFitParam,
+    pub bg_linear_coeff: SimpleFitParam,
+    pub bg_const_coeff: SimpleFitParam,
+}
+
+
+pub struct ErfLinear3GaussFitResult {
+    pub params: ErfLinear3GaussParams,
+    pub stats: FitStatistics,
+}
+
+
 pub fn fit_erf_linear_3_gauss(
     x: &[f64], y: &[f64], init: &[f64]
-) -> Result<HashMap<&'static str, SimpleFitParam>, LMFitError> {
+) -> Result<ErfLinear3GaussFitResult, LMFitError> {
     let mut params = Vec::new();
 
     params.push(FitParam::new(init[0]).min(0.));  // amp_1
@@ -629,34 +735,32 @@ pub fn fit_erf_linear_3_gauss(
 
     let (result, report) = LevenbergMarquardt::new().minimize(problem);
 
-    let fit_status = FitStatus { termination: report.termination };
-
-    if !fit_status.termination.was_successful() {
+    if !report.termination.was_successful() {
+        let fit_status = FitStatus { termination: report.termination };
         return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
-    let mut opt = Vec::new();
+    let stats = result.stats(report).unwrap();
 
-    for i in 0..init.len() {
-        opt.push(result.transforms[i](result.p[i], &result.params[i]));
-    }
+    let errs = stats.err.clone().unwrap_or(DVector::from_element(p.len(), f64::NAN));
+    let vals = result.transformed_params;
 
-    let mut params = HashMap::new();
+    let params = ErfLinear3GaussParams {
+        gauss_1_amplitude: SimpleFitParam { val: vals[0], err: errs[0] },
+        gauss_1_center: SimpleFitParam { val: vals[1], err: errs[1] },
+        gauss_1_sigma: SimpleFitParam { val: vals[2], err: errs[2] },
+        gauss_2_amplitude: SimpleFitParam { val: vals[3], err: errs[3] },
+        gauss_2_center: SimpleFitParam { val: vals[4], err: errs[4] },
+        gauss_2_sigma: SimpleFitParam { val: vals[5], err: errs[5] },
+        gauss_3_amplitude: SimpleFitParam { val: vals[6], err: errs[6] },
+        gauss_3_center: SimpleFitParam { val: vals[7], err: errs[7] },
+        gauss_3_sigma: SimpleFitParam { val: vals[8], err: errs[8] },
+        erf_amplitude: SimpleFitParam { val: vals[9], err: errs[9] },
+        bg_linear_coeff: SimpleFitParam { val: vals[10], err: errs[10] },
+        bg_const_coeff: SimpleFitParam { val: vals[11], err: errs[11] },
+    };
 
-    params.insert("amp_1", SimpleFitParam { val: opt[0], err: f64::NAN });
-    params.insert("x0_1", SimpleFitParam { val: opt[1], err: f64::NAN });
-    params.insert("sig_1", SimpleFitParam { val: opt[2], err: f64::NAN });
-    params.insert("amp_2", SimpleFitParam { val: opt[3], err: f64::NAN });
-    params.insert("x0_2", SimpleFitParam { val: opt[4], err: f64::NAN });
-    params.insert("sig_2", SimpleFitParam { val: opt[5], err: f64::NAN });
-    params.insert("amp_3", SimpleFitParam { val: opt[6], err: f64::NAN });
-    params.insert("x0_3", SimpleFitParam { val: opt[7], err: f64::NAN });
-    params.insert("sig_3", SimpleFitParam { val: opt[8], err: f64::NAN });
-    params.insert("erf_amp", SimpleFitParam { val: opt[9], err: f64::NAN });
-    params.insert("lin", SimpleFitParam { val: opt[10], err: f64::NAN });
-    params.insert("const", SimpleFitParam { val: opt[11], err: f64::NAN });
-
-    Ok(params)
+    Ok(ErfLinear3GaussFitResult { params, stats })
 }
 
 

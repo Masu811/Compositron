@@ -11,7 +11,7 @@ use crate::core::utils::{
     spectrum_match, EnergyDetector, LossyIntoF64, Spectrum,EcalCorrectionOrder,
     Unit
 };
-use crate::core::fitting::{self, LMFitError};
+use crate::core::fitting::LMFitError;
 use crate::dbs::fitting::*;
 
 
@@ -54,6 +54,13 @@ pub enum PeakModel {
     ErfLinear1Gauss,
     ErfLinear2Gauss,
     ErfLinear3Gauss,
+}
+
+pub struct PeakFitResults {
+    pub gauss: Option<GaussFitResult>,
+    pub erf_linear_1_gauss: Option<ErfLinear1GaussFitResult>,
+    pub erf_linear_2_gauss: Option<ErfLinear2GaussFitResult>,
+    pub erf_linear_3_gauss: Option<ErfLinear3GaussFitResult>,
 }
 
 
@@ -162,7 +169,7 @@ pub struct DBSpectrum {
     pub peak: Option<Vec<f64>>,
     pub peak_bnd_idcs: Option<(usize, usize)>,
     pub peak_counts: Option<f64>,
-    pub peak_params: HashMap<&'static str, fitting::SimpleFitParam>,
+    pub peak_fits: PeakFitResults,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
 
@@ -183,7 +190,12 @@ impl DBSpectrum {
             peak_counts: None,
             peak: None,
             peak_bnd_idcs: None,
-            peak_params: HashMap::new(),
+            peak_fits: PeakFitResults {
+                gauss: None,
+                erf_linear_1_gauss: None,
+                erf_linear_2_gauss: None,
+                erf_linear_3_gauss: None,
+            },
             lineshape_params: HashMap::new(),
         }
     }
@@ -207,7 +219,7 @@ impl DBSpectrum {
         let max = y.iter().max_by(|&a, &b| a.total_cmp(b)).map_or(100., |&x| x);
 
         if peak_model == PeakModel::Gauss {
-            self.peak_params.extend(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
+            self.peak_fits.gauss = Some(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
             return Ok(());
         }
 
@@ -216,17 +228,17 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::ErfLinear1Gauss => {
-                self.peak_params.extend(fit_erf_linear_1_gauss(
+                self.peak_fits.erf_linear_1_gauss = Some(fit_erf_linear_1_gauss(
                     &x, &y, &vec![max, 511., 1., erf_amp, 0., min]
                 )?);
             },
             PeakModel::ErfLinear2Gauss => {
-                self.peak_params.extend(fit_erf_linear_2_gauss(
+                self.peak_fits.erf_linear_2_gauss = Some(fit_erf_linear_2_gauss(
                     &x, &y, &vec![max / 2., 511., 1., max / 2., 511., 1.5, erf_amp, 0., min]
                 )?);
             },
             PeakModel::ErfLinear3Gauss => {
-                self.peak_params.extend(fit_erf_linear_3_gauss(
+                self.peak_fits.erf_linear_3_gauss = Some(fit_erf_linear_3_gauss(
                     &x, &y, &vec![max / 3., 511., 1., max / 3., 511., 1.5, max / 3., 511., 2.0, erf_amp, 0., min]
                 )?);
             },
@@ -249,14 +261,42 @@ impl DBSpectrum {
         let x = self.get_peak_energies();
         let y = self.peak.as_mut().unwrap();
 
-        let corr = erf_linear_background(
-            &x,
-            self.peak_params.get("erf_amp").unwrap().val,
-            self.peak_params.get("x0_1").unwrap().val,
-            self.peak_params.get("sig_1").unwrap().val,
-            self.peak_params.get("lin").unwrap().val,
-            self.peak_params.get("const").unwrap().val,
-        );
+        let corr = match peak_model {
+            PeakModel::Gauss => unreachable!(),
+            PeakModel::ErfLinear1Gauss => {
+                let params = &self.peak_fits.erf_linear_1_gauss.as_ref().unwrap().params;
+                erf_linear_background(
+                    &x,
+                    params.erf_amplitude.val,
+                    params.center.val,
+                    params.sigma.val,
+                    params.bg_linear_coeff.val,
+                    params.bg_const_coeff.val,
+                )
+            },
+            PeakModel::ErfLinear2Gauss => {
+                let params = &self.peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
+                erf_linear_background(
+                    &x,
+                    params.erf_amplitude.val,
+                    params.gauss_1_center.val,
+                    params.gauss_1_sigma.val,
+                    params.bg_linear_coeff.val,
+                    params.bg_const_coeff.val,
+                )
+            },
+            PeakModel::ErfLinear3Gauss => {
+                let params = &self.peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
+                erf_linear_background(
+                    &x,
+                    params.erf_amplitude.val,
+                    params.gauss_1_center.val,
+                    params.gauss_1_sigma.val,
+                    params.bg_linear_coeff.val,
+                    params.bg_const_coeff.val,
+                )
+            },
+        };
 
         for (s, bg) in y.iter_mut().zip(corr) {
             *s = (*s - bg).max(0.);
@@ -309,7 +349,7 @@ impl DBSpectrum {
 
         self.fit_peak(PeakModel::Gauss)?;
 
-        let c = self.peak_params.get("x0_1").unwrap().val;
+        let c = self.peak_fits.gauss.as_ref().unwrap().params.center.val;
 
         let mut ecal = self.detector.ecal;
 

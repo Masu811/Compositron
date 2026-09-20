@@ -6,7 +6,7 @@ use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 
 use crate::constants::{FWHM_OVER_SIGMA, SQRT_2, SQRT_2_PI};
 use crate::pals::model::LifetimeModel;
-use crate::core::fitting::{FitParam, FitStatus, LMFitError};
+use crate::core::fitting::{BoundedLeastSquaresProblem, FitParam, FitStatus, LMFitError};
 
 enum ParamType {
     Varied(usize),
@@ -365,47 +365,14 @@ impl<'a> LeastSquaresProblem<f64, Dyn, Dyn> for Problem<'a> {
     }
 }
 
-fn compute_red_chi2(
-    problem: &impl levenberg_marquardt::LeastSquaresProblem<f64, Dyn, Dyn>,
-) -> Option<f64> {
-    let r = problem.residuals()?;
-    let j = problem.jacobian()?;
-
-    let m = r.len();
-    let n = j.ncols();
-
-    if m <= n {
-        return None;
+impl<'a> BoundedLeastSquaresProblem for Problem<'a> {
+    fn diffs(&self) -> &Vec<fn (f64, &FitParam) -> f64> {
+        &self.diffs
     }
 
-    let dof = (m - n) as f64;
-    let red_chi2 = r.norm_squared() / dof;
-
-    Some(red_chi2)
-}
-
-fn compute_covariance(
-    problem: &Problem, red_chi2: f64
-) -> Option<DMatrix<f64>> {
-    let mut j = problem.jacobian()?;
-
-    let d = DVector::from_iterator(
-        problem.p.len(),
-        problem.p
-            .iter()
-            .enumerate()
-            .map(|(i, &p)| problem.diffs[i](p, problem.params[i]))
-    );
-
-    for i in 0..problem.p.len() {
-        j.column_mut(i).scale_mut(1. / (d[i] + 1e-6));
+    fn param_data(&self, i: usize) -> &FitParam {
+        self.params[i]
     }
-
-    let jtj = j.transpose() * &j;
-
-    let jtj_inv = jtj.try_inverse()?;
-
-    Some(jtj_inv * red_chi2)
 }
 
 struct ProblemTemplate<'a> {
@@ -788,23 +755,18 @@ pub fn fit_lifetime_spectrum(
 
     let (problem, report) = lm.minimize(problem);
 
-    let fit_status = FitStatus { termination: report.termination };
-
-    if !fit_status.termination.was_successful() {
+    if !report.termination.was_successful() {
+        let fit_status = FitStatus { termination: report.termination };
         return Err(LMFitError::Failure { info: fit_status.repr().into() });
     }
 
-    let red_chi2 = compute_red_chi2(&problem);
+    let stats = problem.stats(report).unwrap();
 
-    let cov = match red_chi2 {
-        None => None,
-        Some(chi2) => compute_covariance(&problem, chi2)
-    };
+    let red_chi2 = stats.red_chi2;
 
-    let std_err = match &cov {
-        None => None,
-        Some(c) => Some(c.diagonal().map(|v| v.sqrt())),
-    };
+    let cov = stats.cov;
+
+    let std_err = stats.err;
 
     let param_types = problem.param_types;
     let transformed_params = problem.transformed_params;
@@ -825,9 +787,9 @@ pub fn fit_lifetime_spectrum(
     Ok(FitResult {
         model,
         n_dpoints: x.len(),
-        fit_status: fit_status,
-        n_eval: report.number_of_evaluations,
-        red_chi_2: red_chi2,
+        fit_status: FitStatus { termination: stats.fit_status },
+        n_eval: stats.n_eval,
+        red_chi_2: Some(red_chi2),
         cov: cov,
     })
 }

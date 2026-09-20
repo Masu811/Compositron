@@ -23,9 +23,9 @@ use crate::cdbs::anti_aliasing::{
     AntiAliasingError, ConvexToVerticesCounterClockwise,
     Ellipse, Parallelogram, Polygon, Rectangle, Vertex
 };
-use crate::cdbs::fitting::fit_gauss2d;
+use crate::cdbs::fitting::{Gauss2DFitResult, fit_gauss2d};
 use crate::constants::{FWHM_OVER_SIGMA, M_E_KEV};
-use crate::core::fitting::{self, LMFitError};
+use crate::core::fitting::LMFitError;
 use crate::core::utils::{
     spectrum2d_match, EcalCorrectionOrder, EnergyDetector, EnergyDetectorPair,
     LinearCalibration, Spectrum2D, Spectrum, Unit
@@ -100,6 +100,11 @@ pub enum AnalysisError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BackgroundModel {
     None,
+}
+
+
+pub struct PeakFitResult {
+    pub gauss: Option<Gauss2DFitResult>,
 }
 
 
@@ -538,7 +543,7 @@ pub struct CDBSpectrum {
     pub peak: Option<DMatrix<f64>>,
     pub peak_bnds: Option<((usize, usize), (usize, usize))>,
     pub peak_counts: Option<f64>,
-    pub peak_params: HashMap<&'static str, fitting::SimpleFitParam>,
+    pub peak_fits: PeakFitResult,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
 
@@ -560,7 +565,9 @@ impl CDBSpectrum {
             peak: None,
             peak_bnds: None,
             peak_counts: None,
-            peak_params: HashMap::new(),
+            peak_fits: PeakFitResult {
+                gauss: None
+            },
             lineshape_params: HashMap::new(),
         }
     }
@@ -849,7 +856,7 @@ impl CDBSpectrum {
             nrows, (peak_bnds.0.0..=peak_bnds.0.1).map(|i| ecal_1.from_index(i))
         );
 
-        self.peak_params = match bg_model {
+        match bg_model {
             BackgroundModel::None => {
                 let (idx, &max) = peak
                     .iter()
@@ -868,15 +875,18 @@ impl CDBSpectrum {
                     Orientation::CoincAligned => 0.,
                 };
 
-                fit_gauss2d(&x, &y, peak, &[max, x0, y0, 0.7, 1.8, phi])?
+                self.peak_fits.gauss = Some(fit_gauss2d(
+                    &x, &y, peak, &[max, x0, y0, 0.7, 1.8, phi]
+                )?);
             },
         };
 
         if self.detpair.eres.is_none() {
-            let sig_x = self.peak_params.get("sig_x").unwrap();
-            let sig_y = self.peak_params.get("sig_y").unwrap();
+            let params = &self.peak_fits.gauss.as_ref().unwrap().params;
+            let sig_x = params.sig_x.val;
+            let sig_y = params.sig_y.val;
 
-            let sig = sig_x.val.min(sig_y.val);
+            let sig = sig_x.min(sig_y);
 
             self.detpair.eres = Some(sig * FWHM_OVER_SIGMA);
         }
@@ -953,14 +963,13 @@ impl CDBSpectrum {
             self.extract_peak((4., 4.), BackgroundModel::None);
         }
 
-        if !self.peak_params.contains_key("x0")
-            || !self.peak_params.contains_key("y0")
-        {
+        if self.peak_fits.gauss.is_none() {
             self.fit_2d_peak(BackgroundModel::None)?;
         }
 
-        let x0 = self.peak_params.get("x0").unwrap().val;
-        let y0 = self.peak_params.get("y0").unwrap().val;
+        let params = &self.peak_fits.gauss.as_ref().unwrap().params;
+        let x0 = params.x0.val;
+        let y0 = params.y0.val;
 
         let mut ecal_1 = self.detpair.first_det.ecal;
         let mut ecal_2 = self.detpair.second_det.ecal;

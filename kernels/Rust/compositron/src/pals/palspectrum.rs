@@ -84,11 +84,11 @@ impl PALSpectrum {
 
         let x = roi.map(|i| i as f64).collect::<Vec<f64>>();
 
-        let mut peak_params = fit_gauss(&x, &y, &vec![max as f64, argmax as f64, 100.])?;
+        let peak_params = fit_gauss(&x, &y, &vec![max as f64, argmax as f64, 100.])?;
 
-        let peak_height = peak_params.remove("amp_1").unwrap();
-        let peak_center = peak_params.remove("x0_1").unwrap();
-        let peak_width = peak_params.remove("sig_1").unwrap();
+        let peak_height = peak_params.params.amplitude;
+        let peak_center = peak_params.params.center;
+        let peak_width = peak_params.params.sigma;
 
         let x0 = peak_center.val;
 
