@@ -1,6 +1,8 @@
 # Compositron - Benchmarks
 
-Disclaimer: The following benchmarks are highly preliminary, as they reflect unoptimized code. Also, keep in mind that Python (NumPy) could be using multi-threading under the hood, so might Julia.
+Disclaimer: The following benchmarks are highly preliminary, as they reflect unoptimized code. Also, keep in mind that Python (NumPy) could be using multi-threading under the hood, so might Julia. For fair benchmarks, the code could for example be run in a Docker container with only one CPU core (probably coming soon).
+
+Also, note that the Rust version is quite a bit farther in development than the other ones and has already received some attention in performance optimization.
 
 ## DBS
 
@@ -14,7 +16,7 @@ Disclaimer: The following benchmarks are highly preliminary, as they reflect uno
 
 | Task                 | Rust    | C++     | Julia   | Python  |
 | :---                 | :---:   | :---:   | :---:   | :---:   |
-| Ecal-correction      | 1.96 ms | 3.36 ms | 6.6 ms  | 3.35 ms |
+| Ecal-correction      | 778 µs | 3.36 ms | 6.6 ms  | 3.35 ms |
 | S-param calculation  | 50.0 µs | 33.0 µs | 106 µs  | 352 µs  |
 | Diagonal projection  | 1.84 ms | 1.19 ms | 3.36 ms | 28.3 ms |
 | Axis projection      | 1.12 ms | 450 µs  | 90.4 µs | 353 µs  |
