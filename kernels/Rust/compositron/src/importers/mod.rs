@@ -1,9 +1,12 @@
 pub mod meps_dat_importer;
-pub mod png_importer;
+pub mod nepomuc_png_importer;
 pub mod slope_n42_importer;
+pub mod eventlist;
+pub mod waveforms;
 
 use thiserror::Error;
 use crate::core::Measurement;
+
 
 #[derive(Debug, Error)]
 pub enum ImportError {
@@ -31,6 +34,7 @@ pub enum ImportError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 }
+
 
 #[derive(Debug, Clone)]
 pub enum DataFormat {

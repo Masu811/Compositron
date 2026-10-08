@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use statrs::statistics::Statistics;
 use thiserror::Error;
 
 use crate::constants::M_E_KEV;
@@ -33,6 +34,9 @@ pub enum AnalysisError {
         has been performed yet"
     )]
     NoPeakExtracted,
+
+    #[error("No peak detected")]
+    NoPeakDetected,
 
     #[error("Lineshape numerator or denominator areas overlap")]
     OverlappingAreas,
@@ -210,6 +214,16 @@ impl DBSpectrum {
     }
 
 
+    fn fit_performed(&self) -> bool {
+        !(
+            self.peak_fits.gauss.is_none() &&
+            self.peak_fits.erf_linear_1_gauss.is_none() &&
+            self.peak_fits.erf_linear_2_gauss.is_none() &&
+            self.peak_fits.erf_linear_3_gauss.is_none()
+        )
+    }
+
+
     fn fit_peak(
         &mut self, peak_model: PeakModel,
     ) -> Result<(), AnalysisError> {
@@ -218,13 +232,26 @@ impl DBSpectrum {
 
         let max = y.iter().max_by(|&a, &b| a.total_cmp(b)).map_or(100., |&x| x);
 
+        if max < 10. {
+            return Err(AnalysisError::NoPeakDetected);
+        }
+
+        if !self.fit_performed() {
+            let mean = y.mean();
+            let std = y.std_dev();
+
+            if y.iter().map(|y_i| (y_i - mean).abs()).all(|d_i| d_i < 3. * std) {
+                return Err(AnalysisError::NoPeakDetected);
+            }
+        }
+
         if peak_model == PeakModel::Gauss {
             self.peak_fits.gauss = Some(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
             return Ok(());
         }
 
         let min = y.iter().min_by(|&a, &b| a.total_cmp(b)).map_or(0., |&x| x);
-        let erf_amp = 0.5 * (y[0] - y[y.len() - 1]);
+        let erf_amp = (0.5 * (y[0] - y[y.len() - 1])).max(0.);
 
         match peak_model {
             PeakModel::ErfLinear1Gauss => {
@@ -344,7 +371,7 @@ impl DBSpectrum {
         }
 
         if self.peak == None {
-            self.extract_peak(20., PeakModel::Gauss)?;
+            self.extract_peak(10., PeakModel::Gauss)?;
         }
 
         self.fit_peak(PeakModel::Gauss)?;

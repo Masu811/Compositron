@@ -12,7 +12,7 @@ use crate::dbs::DBSpectrum;
 use crate::cdbs::{CDBSpectrum, cdbspectrum::Orientation};
 use crate::core::Measurement;
 use crate::core::utils::{EnergyDetector, EnergyDetectorPair, LinearCalibration, Spectrum, Spectrum2D};
-use crate::importers::png_importer;
+use crate::importers::nepomuc_png_importer;
 
 
 #[derive(Debug, Error)]
@@ -67,7 +67,7 @@ pub enum N42FormatError {
     #[error("Error while importing PNG file")]
     PNGImportError{
         #[from]
-        source: png_importer::ImportError,
+        source: nepomuc_png_importer::ImportError,
     },
 
     #[error("N42 format not yet supported: {detail}")]
@@ -597,7 +597,7 @@ fn parse_cdbspectrum(
         None => Path::new(""),
     };
 
-    Ok(png_importer::import_png(&directory.join(png_filename))?)
+    Ok(nepomuc_png_importer::import_nepomuc_png(&directory.join(png_filename))?)
 }
 
 

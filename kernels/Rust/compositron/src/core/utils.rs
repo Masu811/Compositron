@@ -59,6 +59,15 @@ pub struct TimingDetectorPair {
     pub tres: Option<f64>,
 }
 
+// AMOC
+#[derive(Debug, Clone)]
+pub struct AMOCDetectorTriplet {
+    pub name: String,
+    pub energy_det: EnergyDetector,
+    pub timing_detpair: TimingDetectorPair,
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EcalCorrectionOrder {
     Zeroth,
@@ -78,10 +87,7 @@ impl Unit {
         match self {
             Unit::KeV(x) => Some(*x),
             Unit::M0C(x) => Some(*x * KEV_PER_M0C),
-            Unit::Eres(x) => match eres {
-                Some(eres) => Some(x * eres),
-                None => None,
-            },
+            Unit::Eres(x) => eres.map(|e| e * x)
         }
     }
 }

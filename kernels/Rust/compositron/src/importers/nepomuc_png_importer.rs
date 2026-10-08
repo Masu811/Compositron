@@ -78,7 +78,7 @@ fn bytes_to_spectrum(bytes: &[u8], n_channels: usize) -> Vec<u32> {
     spectrum
 }
 
-pub fn import_png(path: &Path) -> Result<Spectrum2D, ImportError> {
+pub fn import_nepomuc_png(path: &Path) -> Result<Spectrum2D, ImportError> {
     let file = File::open(path).map_err(
         |err| ImportError::FileSystemError {
             inner: err,
