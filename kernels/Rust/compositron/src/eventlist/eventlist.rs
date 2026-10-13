@@ -1,21 +1,33 @@
-use crate::{cdbs::{CDBSpectrum, cdbspectrum::Orientation}, dbs::DBSpectrum, pals::PALSpectrum};
+use std::sync::Arc;
+
+use thiserror::Error;
+
+use crate::cdbs::{CDBSpectrum, cdbspectrum::Orientation};
+use crate::dbs::DBSpectrum;
+use crate::pals::PALSpectrum;
 
 
-pub enum Column {
-    I16(Vec<i16>),
-    I32(Vec<i32>),
-    I64(Vec<i64>),
-    I128(Vec<i128>),
-    F64(Vec<f64>),
+#[derive(Debug, Error)]
+pub enum AnalysisError {
+
+}
+
+
+pub enum EventListColumnType {
+    Timestamp,
+    PulseHeight,
+    PulseArea,
+    PulseRiseTime,
+    PulseDecayTime,
 }
 
 
 pub enum EventListColumn {
-    Timestamp(Column),
-    PulseHeight(Column),
-    PulseArea(Column),
-    PulseRiseTime(Column),
-    PulseDecayTime(Column),
+    Timestamp(Arc<[u64]>),
+    PulseHeight(Arc<[f64]>),
+    PulseArea(Arc<[f64]>),
+    PulseRiseTime(Arc<[f64]>),
+    PulseDecayTime(Arc<[f64]>),
 }
 
 
@@ -27,17 +39,17 @@ pub struct Bins {
 
 
 pub struct EventList {
-    pub events: Vec<EventListColumn>,
+    pub columns: Vec<EventListColumn>,
 }
 
 
 impl EventList {
     pub fn new() -> Self {
-        EventList { events: Vec::new() }
+        EventList { columns: Vec::new() }
     }
 
     pub fn add_column(&mut self, column: EventListColumn) {
-        self.events.push(column);
+        self.columns.push(column);
     }
 
     pub fn to_histogram(

@@ -1,11 +1,12 @@
 use std::fs::File;
 use std::io::{Seek, Read};
 use std::path::Path;
+use std::sync::Arc;
 
 use thiserror::Error;
 
 use crate::core::utils::LinearCalibration;
-use crate::waveforms::waveform::{PeakPolarity, Trace, WaveformArray};
+use crate::waveforms::waveform::{PulsePolarity, Trace, WaveformArray};
 
 
 #[derive(Debug, Error)]
@@ -515,8 +516,8 @@ fn read_data_array(
 
 
 pub fn import_lecroy_trc(
-    path: &Path,
-    peak_polarity: PeakPolarity,
+    path: &str,
+    peak_polarity: PulsePolarity,
 ) -> Result<WaveformArray, TRCImportError> {
     let mut file = File::open(path)?;
 
@@ -598,7 +599,7 @@ pub fn import_lecroy_trc(
                 if stop > size {
                     break;
                 }
-                traces.push(Trace::I8(data[start..stop].to_vec()));
+                traces.push(Trace::I8(Arc::from(&data[start..stop])));
             }
         }
         DataArray::Word(data) => {
@@ -609,24 +610,26 @@ pub fn import_lecroy_trc(
                 if stop > size {
                     break;
                 }
-                traces.push(Trace::I16(data[start..stop].to_vec()));
+                traces.push(Trace::I16(Arc::from(&data[start..stop])));
             }
         }
     }
 
-    let mut trigger_times: Vec<f64> = Vec::new();
+    let mut trigger_times: Vec<u64> = Vec::new();
 
     for i in 0..n_subarrays as usize {
-        trigger_times.push(trc_file.trigtime[i].0 + trc_file.trigtime[i].1);
+        trigger_times.push((
+            (trc_file.trigtime[i].0 + trc_file.trigtime[i].1) * 1e12
+        ) as u64);
     }
 
     Ok(WaveformArray::new(
         traces,
-        trc_file.descriptor.horizontal_interval as f64,
+        (trc_file.descriptor.horizontal_interval as f64) * 1e12,
         trigger_times,
         LinearCalibration {
             scale: trc_file.descriptor.vertical_gain as f64,
-            offset: trc_file.descriptor.vertical_offset as f64,
+            offset: -trc_file.descriptor.vertical_offset as f64,
         },
         peak_polarity,
     ))

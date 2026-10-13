@@ -1,8 +1,18 @@
-use crate::{trace_match, waveforms::waveform::{Waveform, WaveformRef}};
+use crate::{trace_match, waveforms::waveform::Waveform};
 
 
 pub trait FilterWaveform {
-    fn filter(&self, waveform: &WaveformRef) -> bool;
+    fn filter(&self, waveform: &Waveform) -> bool;
+}
+
+
+pub struct PulsePresenceFilter;
+
+
+impl FilterWaveform for PulsePresenceFilter {
+    fn filter(&self, waveform: &Waveform) -> bool {
+        waveform.params.contains_pulse.map_or(false, |x| x)
+    }
 }
 
 
@@ -15,28 +25,28 @@ pub struct HeightFilter {
 
 
 impl HeightFilter {
-    fn check_all_higher_than(&self, waveform: &WaveformRef) -> bool {
+    fn check_all_higher_than(&self, waveform: &Waveform) -> bool {
         trace_match!(
             &waveform.trace, trace => self.all_higher_than
                 .map_or(true, |min| trace.iter().all(|x| *x as f64 >= min))
         )
     }
 
-    fn check_all_lower_than(&self, waveform: &WaveformRef) -> bool {
+    fn check_all_lower_than(&self, waveform: &Waveform) -> bool {
         trace_match!(
             &waveform.trace, trace => self.all_lower_than
                 .map_or(true, |min| trace.iter().all(|x| *x as f64 <= min))
         )
     }
 
-    fn check_any_higher_than(&self, waveform: &WaveformRef) -> bool {
+    fn check_any_higher_than(&self, waveform: &Waveform) -> bool {
         trace_match!(
             &waveform.trace, trace => self.any_higher_than
                 .map_or(true, |min| trace.iter().any(|x| *x as f64 >= min))
         )
     }
 
-    fn check_any_lower_than(&self, waveform: &WaveformRef) -> bool {
+    fn check_any_lower_than(&self, waveform: &Waveform) -> bool {
         trace_match!(
             &waveform.trace, trace => self.any_lower_than
                 .map_or(true, |min| trace.iter().any(|x| *x as f64 <= min))
@@ -46,7 +56,7 @@ impl HeightFilter {
 
 
 impl FilterWaveform for HeightFilter {
-    fn filter(&self, waveform: &WaveformRef) -> bool {
+    fn filter(&self, waveform: &Waveform) -> bool {
         self.check_all_higher_than(waveform)
             && self.check_all_lower_than(waveform)
             && self.check_any_higher_than(waveform)

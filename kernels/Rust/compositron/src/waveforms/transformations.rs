@@ -1,8 +1,8 @@
-use crate::{waveforms::waveform::{Waveform, WaveformRef}};
+use crate::waveforms::waveform::Waveform;
 
 
 pub trait TransformWaveform {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }
@@ -12,7 +12,7 @@ pub struct InvertY;
 
 
 impl TransformWaveform for InvertY {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }
@@ -22,7 +22,7 @@ pub struct ZeroBaseline;
 
 
 impl TransformWaveform for ZeroBaseline {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }
@@ -34,7 +34,7 @@ pub struct SlidingWindowAverage {
 
 
 impl TransformWaveform for SlidingWindowAverage {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }
@@ -46,7 +46,7 @@ pub struct DownsampleStride {
 
 
 impl TransformWaveform for DownsampleStride {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }
@@ -58,7 +58,7 @@ pub struct DownsampleAverageRightNeighbors {
 
 
 impl TransformWaveform for DownsampleAverageRightNeighbors {
-    fn transform(&self, waveform: WaveformRef) -> Waveform {
+    fn transform(&self, waveform: &Waveform) -> Waveform {
         todo!();
     }
 }

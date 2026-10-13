@@ -25,39 +25,43 @@ pub fn average_range(
 
 pub fn get_extremal_element(
     trace: &Trace,
-    peak_polarity: PeakPolarity,
-) -> Option<(usize, f64)> {
+    pulse_polarity: PulsePolarity,
+) -> Option<Element> {
     split_trace_match!(
         trace,
         int_arr => {
-            match peak_polarity {
-                PeakPolarity::Negative => int_arr
+            match pulse_polarity {
+                PulsePolarity::Negative => int_arr
                     .iter()
                     .enumerate()
                     .min_by(|&(_, a), &(_, b)| a.cmp(b)),
-                PeakPolarity::Positive => int_arr
+                PulsePolarity::Positive => int_arr
                     .iter()
                     .enumerate()
                     .max_by(|&(_, a), &(_, b)| a.cmp(b)),
-            }.map(|(extr_idx, extr)| (extr_idx, *extr as f64))
+            }.map(|(extr_idx, extr)| Element {
+                idx: extr_idx, value: *extr as f64,
+            })
         },
         float_arr => {
-            match peak_polarity {
-                PeakPolarity::Negative => float_arr
+            match pulse_polarity {
+                PulsePolarity::Negative => float_arr
                     .iter()
                     .enumerate()
                     .min_by(|&(_, a), &(_, b)| a.total_cmp(b)),
-                PeakPolarity::Positive => float_arr
+                PulsePolarity::Positive => float_arr
                     .iter()
                     .enumerate()
                     .max_by(|&(_, a), &(_, b)| a.total_cmp(b)),
-            }.map(|(extr_idx, extr)| (extr_idx, *extr as f64))
+            }.map(|(extr_idx, extr)| Element {
+                idx: extr_idx, value: *extr as f64,
+            })
         }
     )
 }
 
 
-pub fn check_for_peak(
+pub fn check_for_pulse(
     baseline: f64, extremum: f64, threshold: f64,
 ) -> bool {
     (baseline - extremum).abs() > threshold
@@ -113,21 +117,23 @@ pub fn cubic_fit(
 }
 
 
-pub fn interpolate_peak_height_and_time(
+pub fn interpolate_pulse_height_and_time(
     trace: &Trace,
     extr_idx: usize,
     extr: f64,
-    peak_height_determination_method: PeakHeightDeterminationMethod,
+    pulse_height_determination_method: PulseHeightDeterminationMethod,
 ) -> Result<(f64, f64), AnalysisError> {
-    match peak_height_determination_method {
-        PeakHeightDeterminationMethod::ExtremalElement => {
+    match pulse_height_determination_method {
+        PulseHeightDeterminationMethod::ExtremalElement => {
             Ok((extr_idx as f64, extr))
         },
-        PeakHeightDeterminationMethod::QuadraticInterpolation => {
+        PulseHeightDeterminationMethod::QuadraticInterpolation => {
             let x1 = extr_idx.max(1);
 
             if x1 + 1 >= trace.len() {
-                return Err(AnalysisError::SizeError);
+                return Err(AnalysisError::IndexError {
+                    idx: (x1 + 1) as isize, size: trace.len()
+                });
             }
 
             let (y0, y1, y2) = trace_match!(trace, arr => (
@@ -139,12 +145,21 @@ pub fn interpolate_peak_height_and_time(
 
             Ok((x1 as f64 + dx_extr, y_extr))
         },
-        PeakHeightDeterminationMethod::CubicFit { n_points } => {
+        PulseHeightDeterminationMethod::CubicFit { n_points } => {
             let start_idx = extr_idx - n_points / 2;
             let stop_idx = start_idx + n_points;
 
-            if extr_idx < n_points / 2 || stop_idx >= trace.len() {
-                return Err(AnalysisError::SizeError);
+            if extr_idx < n_points / 2 {
+                return Err(AnalysisError::IndexError {
+                    idx: extr_idx as isize - (n_points / 2) as isize,
+                    size: trace.len()
+                });
+            }
+
+            if stop_idx >= trace.len() {
+                return Err(AnalysisError::IndexError {
+                    idx: stop_idx as isize, size: trace.len()
+                });
             }
 
             let y = trace_match!(trace, arr => DVector::from_iterator(
@@ -162,12 +177,12 @@ pub fn interpolate_peak_height_and_time(
             let dx_extr_sq = dx_extr * dx_extr;
             let dx_extr_cb = dx_extr_sq * dx_extr;
 
-            let peak_height = a * dx_extr_cb
+            let pulse_height = a * dx_extr_cb
                 + b * dx_extr_sq
                 + c * dx_extr
                 + d;
 
-            Ok((extr_idx as f64 + dx_extr, peak_height))
+            Ok((extr_idx as f64 + dx_extr, pulse_height))
         },
     }
 }
@@ -203,8 +218,16 @@ pub fn interpolate_trigger_time(
         },
         TriggerTimeDeterminationMethod::LinearInterpolation => {
             trace_match!(trace, arr => {
-                if trig_idx < 1 || arr.len() < 2 {
-                    return Err(AnalysisError::SizeError);
+                let n = arr.len();
+
+                if trig_idx < 1 {
+                    return Err(AnalysisError::IndexError { idx: -1, size: n });
+                }
+
+                if trig_idx >= n {
+                    return Err(AnalysisError::IndexError {
+                        idx: trig_idx as isize, size: n
+                    });
                 }
 
                 let y_l = arr[trig_idx - 1] as f64;
@@ -219,8 +242,18 @@ pub fn interpolate_trigger_time(
         },
         TriggerTimeDeterminationMethod::QuarticInterpolation => {
             trace_match!(trace, arr => {
-                if trig_idx < 2 || trace.len() < 5 {
-                    return Err(AnalysisError::SizeError);
+                let n = trace.len();
+
+                if trig_idx < 2 {
+                    return Err(AnalysisError::IndexError {
+                        idx: trig_idx as isize - 2, size: n
+                    });
+                }
+
+                if trig_idx + 2 >= n {
+                    return Err(AnalysisError::IndexError {
+                        idx: trig_idx as isize + 2, size: n
+                    });
                 }
 
                 let y0 = arr[trig_idx - 2] as f64;
@@ -254,11 +287,23 @@ pub fn interpolate_trigger_time(
             })
         },
         TriggerTimeDeterminationMethod::LinearFit { n_points } => {
-            let start_idx = trig_idx - n_points / 2;
+            let n = trace.len();
+            let n_points_halves = n_points / 2;
+
+            let start_idx = trig_idx - n_points_halves;
             let stop_idx = start_idx + n_points;
 
-            if trig_idx < n_points / 2 || stop_idx >= trace.len() {
-                return Err(AnalysisError::SizeError);
+            if trig_idx < n_points_halves {
+                return Err(AnalysisError::IndexError {
+                    idx: trig_idx as isize - n_points_halves as isize,
+                    size: trace.len()
+                });
+            }
+
+            if stop_idx >= n {
+                return Err(AnalysisError::IndexError {
+                    idx: stop_idx as isize, size: n
+                });
             }
 
             let n = n_points as f64;
@@ -285,11 +330,23 @@ pub fn interpolate_trigger_time(
             })
         },
         TriggerTimeDeterminationMethod::QuadraticFit { n_points } => {
-            let start_idx = trig_idx - n_points / 2;
+            let n = trace.len();
+            let n_points_halves = n_points / 2;
+
+            let start_idx = trig_idx - n_points_halves;
             let stop_idx = start_idx + n_points;
 
-            if trig_idx < n_points / 2 || stop_idx >= trace.len() {
-                return Err(AnalysisError::SizeError);
+            if trig_idx < n_points_halves {
+                return Err(AnalysisError::IndexError {
+                    idx: trig_idx as isize - n_points_halves as isize,
+                    size: trace.len()
+                });
+            }
+
+            if stop_idx >= n {
+                return Err(AnalysisError::IndexError {
+                    idx: stop_idx as isize, size: n
+                });
             }
 
             let y = trace_match!(trace, arr => DVector::from_iterator(
