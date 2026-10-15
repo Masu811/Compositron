@@ -194,7 +194,7 @@ pub fn get_area(
     stop_idx: usize,
     integration_range: f64,
     baseline: f64,
-) -> Result<f64, AnalysisError> {
+) -> f64 {
     let integral = trace_match!(
         trace, arr => arr[start_idx..stop_idx]
             .iter()
@@ -202,7 +202,7 @@ pub fn get_area(
             .sum::<f64>()
     );
 
-    Ok((integral - baseline * integration_range).abs())
+    (integral - baseline * integration_range).abs()
 }
 
 

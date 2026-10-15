@@ -15,9 +15,9 @@ fn main() -> anyhow::Result<()> {
         PulsePolarity::Negative,
     )?;
 
-    warr.get_baseline(TimeRange::Channels(0, 10))?;
+    warr.get_baseline(TimeRange::Samples(0, 10))?;
 
-    warr.check_for_pulse(Amplitude::BaselineStdDev(5.))?;
+    warr.check_for_pulse(Amplitude::LSB(5.))?;
 
     let mut warr = warr.filter(PulsePresenceFilter);
 

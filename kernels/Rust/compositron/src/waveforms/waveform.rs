@@ -133,12 +133,11 @@ impl Amplitude {
     pub fn to_lsb(
         &self,
         vcal: LinearCalibration,
-        pulse_polarity: PulsePolarity,
         pulse_height: Option<f64>,
         baseline: Option<Average>,
     ) -> Result<f64, AnalysisError> {
         Ok(match self {
-            Amplitude::Volts(x) => vcal.to_index_f64(*x),
+            Amplitude::Volts(x) => x / vcal.scale,
             Amplitude::LSB(x) => *x,
             Amplitude::CFLevel(x) => {
                 let Some(baseline) = baseline else {
@@ -154,7 +153,7 @@ impl Amplitude {
                     });
                 };
 
-                baseline.mean + x * (height - baseline.mean)
+                x * (height - baseline.mean)
             },
             Amplitude::BaselineStdDev(x) => {
                 let Some(baseline) = baseline else {
@@ -164,12 +163,7 @@ impl Amplitude {
                     });
                 };
 
-                let sign = match pulse_polarity {
-                    PulsePolarity::Positive => 1.,
-                    PulsePolarity::Negative => -1.,
-                };
-
-                baseline.mean + x * sign * baseline.stddev
+                x * baseline.stddev
             },
         })
     }
@@ -244,15 +238,15 @@ pub struct ElementArray {
 #[derive(Debug, Clone, Copy)]
 pub enum TimeStep {
     Time(f64),
-    Channels(usize),
+    Samples(usize),
 }
 
 
 impl TimeStep {
-    pub fn to_channels(&self, time_channel_disp: f64) -> usize {
+    pub fn to_samples(&self, time_channel_disp: f64) -> usize {
         match self {
             TimeStep::Time(t) => (t / time_channel_disp) as usize,
-            TimeStep::Channels(i) => *i,
+            TimeStep::Samples(i) => *i,
         }
     }
 }
@@ -261,17 +255,17 @@ impl TimeStep {
 #[derive(Debug, Clone, Copy)]
 pub enum TimeRange {
     Time(f64, f64),
-    Channels(usize, usize),
+    Samples(usize, usize),
 }
 
 
 impl TimeRange {
-    pub fn to_channels(&self, time_channel_disp: f64) -> (usize, usize) {
+    pub fn to_samples(&self, time_channel_disp: f64) -> (usize, usize) {
         match self {
             TimeRange::Time(t1, t2) => (
                 (t1 / time_channel_disp) as usize, (t2 / time_channel_disp) as usize
             ),
-            TimeRange::Channels(i1, i2) => (*i1, *i2),
+            TimeRange::Samples(i1, i2) => (*i1, *i2),
         }
     }
 }
@@ -452,13 +446,21 @@ impl Trigger {
         self,
         waveform: &Waveform,
     ) -> Result<Option<(usize, f64)>, AnalysisError> {
+        let Some(baseline) = waveform.params.baseline else {
+            return Err(AnalysisError::NoBaseline);
+        };
+
+        let sign = match waveform.pulse_polarity {
+            PulsePolarity::Positive => 1.,
+            PulsePolarity::Negative => -1.,
+        };
+
         match self {
             Trigger::Simple { trigger_threshold, crossing_direction } => {
                 Ok(Trigger::simple_trigger(
                     &waveform.trace,
-                    trigger_threshold.to_lsb(
+                    baseline.mean + sign * trigger_threshold.to_lsb(
                         waveform.vcal,
-                        waveform.pulse_polarity,
                         waveform.params.pulse_height,
                         waveform.params.baseline,
                     )?,
@@ -471,9 +473,8 @@ impl Trigger {
             } => {
                 Ok(Trigger::runlength_trigger(
                     &waveform.trace,
-                    trigger_threshold.to_lsb(
+                    baseline.mean + sign * trigger_threshold.to_lsb(
                         waveform.vcal,
-                        waveform.pulse_polarity,
                         waveform.params.pulse_height,
                         waveform.params.baseline,
                     )?,
@@ -669,7 +670,7 @@ impl Waveform {
     pub fn average_range(
         &mut self, time_range: TimeRange
     ) -> Result<Average, AnalysisError> {
-        let (i1, i2) = time_range.to_channels(self.time_channel_disp);
+        let (i1, i2) = time_range.to_samples(self.time_channel_disp);
 
         let n = self.trace.len();
 
@@ -730,7 +731,6 @@ impl Waveform {
 
         let threshold = min_required_pulse_height.to_lsb(
             self.vcal,
-            self.pulse_polarity,
             self.params.pulse_height,
             self.params.baseline,
         )?;
@@ -787,13 +787,13 @@ impl Waveform {
             return Err(AnalysisError::NoBaseline);
         };
 
-        let (i1, i2) = time_range.to_channels(self.time_channel_disp);
+        let (i1, i2) = time_range.to_samples(self.time_channel_disp);
 
         let integration_range = (i2 - i1) as f64;
 
         let area = analysis::get_area(
             &self.trace, i1, i2, integration_range, baseline.mean,
-        )?;
+        );
 
         Ok(area)
     }
@@ -820,8 +820,8 @@ impl Waveform {
 
         let extr_idx = extr_elem.idx;
 
-        let i1 = integration_range_before_pulse_max.to_channels(self.time_channel_disp);
-        let i2 = integration_range_after_pulse_max.to_channels(self.time_channel_disp);
+        let i1 = integration_range_before_pulse_max.to_samples(self.time_channel_disp);
+        let i2 = integration_range_after_pulse_max.to_samples(self.time_channel_disp);
 
         let n = self.trace.len();
 
@@ -840,11 +840,11 @@ impl Waveform {
         let i1 = extr_idx - i1;
         let i2 = extr_idx + i2;
 
-        let integration_range = (i2 + i1) as f64;
+        let integration_range = (i2 - i1) as f64;
 
         let area = analysis::get_area(
             &self.trace, i1, i2, integration_range, baseline.mean,
-        )?;
+        );
 
         self.params.pulse_area = Some(area);
 
@@ -1065,7 +1065,7 @@ impl WaveformArray {
     pub fn average_range(
         &mut self, time_range: TimeRange
     ) -> Result<AverageArray, AnalysisError> {
-        let (i1, i2) = time_range.to_channels(self.time_channel_disp);
+        let (i1, i2) = time_range.to_samples(self.time_channel_disp);
 
         let n = self.traces[0].len();
 
@@ -1150,7 +1150,6 @@ impl WaveformArray {
         for i in 0..self.active_indices.len() {
             let threshold = min_required_pulse_height.to_lsb(
                 self.vcal,
-                self.pulse_polarity,
                 self.params.pulse_heights.as_ref().map(|arr| arr[i]),
                 self.params.baselines.as_ref().map(|arr| Average {
                     mean: arr.means[i], stddev: arr.stddevs[i],
@@ -1203,12 +1202,16 @@ impl WaveformArray {
             let extr_idx = extremal_elements.idcs[i];
             let extr = extremal_elements.values[i];
 
-            let (extr_idx, extr) = analysis::interpolate_pulse_height_and_time(
+            let Ok((extr_idx, extr)) = analysis::interpolate_pulse_height_and_time(
                 &self.traces[idx],
                 extr_idx,
                 extr,
                 pulse_height_determination_method,
-            )?;
+            ) else {
+                pulse_heights.push(f64::NAN);
+                pulse_times.push(f64::NAN);
+                continue;
+            };
 
             let pulse_height = (baseline- extr).abs();
 
@@ -1233,7 +1236,7 @@ impl WaveformArray {
 
         let baselines = self.params.baselines.as_ref().unwrap();
 
-        let (i1, i2) = time_range.to_channels(self.time_channel_disp);
+        let (i1, i2) = time_range.to_samples(self.time_channel_disp);
 
         let integration_range = (i2 - i1) as f64;
 
@@ -1242,7 +1245,7 @@ impl WaveformArray {
         for (i, &idx) in self.active_indices.iter().enumerate() {
             areas.push(analysis::get_area(
                 &self.traces[idx], i1, i2, integration_range, baselines.means[i],
-            )?);
+            ));
         }
 
         Ok(())
@@ -1270,8 +1273,8 @@ impl WaveformArray {
         let baselines = self.params.baselines.as_ref().unwrap();
         let extremal_elements = self.params.extremal_elements.as_ref().unwrap();
 
-        let i1 = integration_range_before_pulse_max.to_channels(self.time_channel_disp);
-        let i2 = integration_range_after_pulse_max.to_channels(self.time_channel_disp);
+        let i1 = integration_range_before_pulse_max.to_samples(self.time_channel_disp);
+        let i2 = integration_range_after_pulse_max.to_samples(self.time_channel_disp);
 
         let mut areas = Vec::with_capacity(self.active_indices.len());
 
@@ -1300,11 +1303,11 @@ impl WaveformArray {
             let i1 = extr_idx - i1;
             let i2 = extr_idx + i2;
 
-            let integration_range = (i2 + i1) as f64;
+            let integration_range = (i2 - i1) as f64;
 
             areas.push(analysis::get_area(
                 &self.traces[idx], i1, i2, integration_range, baselines.means[i],
-            )?);
+            ));
         }
 
         self.params.pulse_areas = Some(Arc::from(areas));
