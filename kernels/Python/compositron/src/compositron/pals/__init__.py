@@ -1,1 +1,0 @@
-from .palspectrum import PALSpectrum
