@@ -2,30 +2,28 @@
 
 ## Description
 
-`Compositron` is a High-Performance All-In-One Data Analysis Toolkit for Multi-Technique Positron Annihilation Spectroscopy.
-It is written in Rust, but currently also contains some modules additionally in Python, Julia and C++ for performance comparison.
-The proclaimed goal of this project is high performance at all costs, which makes the source code harder to maintain. The current plan is that `Compositron` will be retired, if PANDORA (to be published) and NEPOMUC's Python package suite ever reach the same level of performance and sophistication.
+`Compositron` is a High-Performance All-In-One Data Analysis Toolkit for Multi-Technique Positron Annihilation Spectroscopy written in Rust.
+The proclaimed goal of this project is high performance at all costs, which makes the source code harder to maintain.
+The current plan is that `Compositron` will be retired, if PANDORA (to be published) and NEPOMUC's Python package suite ever reach the same level of performance and sophistication.
 Until then, `Compositron` continues growing.
 A Tauri GUI is definitely planned.
 
 ## Roadmap
 
-| Feature                      | Rust  | C++   | Julia | Python |
-| :---                         | :---: | :---: | :---: | :---:  |
-| DBS analysis                 | ✓     | ✓     | ✓     | ✓      |
-| Basic CDBS analysis          | ✓     | (✓)   | (✓)   | (✓)    |
-| Advanced CDBS analysis       |       |       |       |        |
-| Basic PALS analysis          | ✓     | ✓     | ✓     | ✓      |
-| Advanced PALS analysis       |       |       |       |        |
-| ACAR analysis                |       |       |       |        |
-| AMOC analysis                |       |       |       |        |
-| Listmode analysis            |       |       |       |        |
-| Waveform analysis            | ✓     |       |       |        |
-| Profile analysis (Diffusion) |       |       |       |        |
-| Synthetic data generator     |       |       |       |        |
-| Multi-Threading              |       |       |       |        |
-| GPU acceleration             |       |       |       |        |
-| SIMD vectorization           |       |       |       |        |
+- [x] DBS analysis                 
+- [x] Basic CDBS analysis          
+- [ ] Advanced CDBS analysis       
+- [x] Basic PALS analysis          
+- [ ] Advanced PALS analysis       
+- [ ] ACAR analysis                
+- [ ] AMOC analysis                
+- [x] Listmode analysis            
+- [x] Waveform analysis            
+- [ ] Profile analysis (Diffusion) 
+- [ ] Synthetic data generator     
+- [ ] Multi-Threading              
+- [ ] GPU acceleration             
+- [ ] SIMD vectorization           
 
 ## Benchmarks
 
