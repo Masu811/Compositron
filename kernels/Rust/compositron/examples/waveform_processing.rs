@@ -1,17 +1,18 @@
+use std::collections::HashMap;
 use std::io::Write;
 
-use compositron::eventlist::eventlist::{EventListColumn, EventListColumnType};
+use compositron::elistcol_match;
 use compositron::importers::waveforms::lecroy_trc_importer;
 use compositron::waveforms::filters::PulsePresenceFilter;
 use compositron::waveforms::waveform::{
-    Amplitude, CrossThresholdFrom, PulseHeightDeterminationMethod,
-    PulsePolarity, TimeRange, TimeStep, Trigger, TriggerTimeDeterminationMethod
+    Amplitude, CrossThresholdFrom, PulseHeightDeterminationMethod, PulsePolarity, TimeRange, TimeStep, Trigger, TriggerTimeDeterminationMethod, WaveformParam
 };
 
 
 fn main() -> anyhow::Result<()> {
     let mut warr = lecroy_trc_importer::import_lecroy_trc(
         "../../../../testdata/waveforms/C1--Kapton--00000.trc",
+        "C1".into(),
         PulsePolarity::Negative,
     )?;
 
@@ -35,41 +36,26 @@ fn main() -> anyhow::Result<()> {
         TriggerTimeDeterminationMethod::LinearFit { n_points: 4 },
     )?;
 
-    let elist = warr.to_eventlist(&[
-        EventListColumnType::Timestamp,
-        EventListColumnType::PulseHeight,
-        EventListColumnType::PulseArea,
-    ])?;
+    let elist = warr.to_eventlist(HashMap::from([
+        (WaveformParam::TriggerTime, "timestamp".into()),
+        (WaveformParam::PulseHeight, "energy".into()),
+    ]))?;
 
     let mut f = std::fs::File::create("eventlist.csv")?;
 
-    let nrows = match &elist.columns[0] {
-        EventListColumn::Timestamp(items) => items.len(),
-        EventListColumn::PulseHeight(items) => items.len(),
-        EventListColumn::PulseArea(items) => items.len(),
-        EventListColumn::PulseRiseTime(items) => items.len(),
-        EventListColumn::PulseDecayTime(items) => items.len(),
-    };
+    let output_columns = vec!["timestamp", "energy"];
 
-    for row in 0..nrows {
-        for col in elist.columns.iter() {
-            match col {
-                EventListColumn::Timestamp(items) => {
-                    write!(f, "{},", items[row])?;
-                },
-                EventListColumn::PulseHeight(items) => {
-                    write!(f, "{},", items[row])?;
-                },
-                EventListColumn::PulseArea(items) => {
-                    write!(f, "{},", items[row])?;
-                },
-                EventListColumn::PulseRiseTime(items) => {
-                    write!(f, "{},", items[row])?;
-                },
-                EventListColumn::PulseDecayTime(items) => {
-                    write!(f, "{},", items[row])?;
-                },
-            };
+    let output_columns = output_columns
+        .iter()
+        .map(|&key| elist.columns.get(key).unwrap())
+        .collect::<Vec<_>>();
+
+    for row in 0..elist.nrows() {
+        for col in &output_columns {
+            elistcol_match!(
+                col,
+                arr => write!(f, "{},", arr[row])?
+            );
         }
         writeln!(f, "")?;
     }

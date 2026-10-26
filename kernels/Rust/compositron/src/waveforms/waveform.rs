@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::core::utils::LinearCalibration;
-use crate::eventlist::eventlist::{EventList, EventListColumn, EventListColumnType};
+use crate::core::utils::{Detector, LinearCalibration};
+use crate::eventlist::eventlist::{self, EventList, EventListColumn};
 use crate::waveforms::analysis;
 use crate::waveforms::filters::FilterWaveform;
 use crate::waveforms::transformations::TransformWaveform;
@@ -47,12 +48,18 @@ pub enum AnalysisError {
     FitError,
 
     #[error(
-        "Error exporting Eventlist column {missing_column}: \
+        "Error exporting Eventlist column {missing_column:?}: \
         Parameter has not been calculated yet"
     )]
     MissingEventListColumn {
-        missing_column: String,
+        missing_column: WaveformParam,
     },
+
+    #[error("Could not convert to EventList")]
+    EventListConversionError {
+        #[from]
+        inner: eventlist::AnalysisError
+    }
 }
 
 
@@ -580,13 +587,25 @@ pub enum TriggerTimeDeterminationMethod {
 }
 
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WaveformParam {
+    Baseline,
+    PulseHeight,
+    PeakTime,
+    PulseArea,
+    TriggerTime,
+    RiseTime,
+    DecayTime,
+}
+
+
 #[derive(Debug, Clone, Copy)]
 pub struct WaveformParams {
     pub contains_pulse: Option<bool>,
     pub baseline: Option<Average>,
     pub extremal_element: Option<Element>,
     pub pulse_height: Option<f64>,
-    pub pulse_time: Option<f64>,
+    pub peak_time: Option<f64>,
     pub pulse_area: Option<f64>,
     pub trigger_time: Option<TriggerTime>,
     pub pulse_rise_time: Option<TriggerTimeRange>,
@@ -600,7 +619,7 @@ pub struct WaveformParamArray {
     pub baselines: Option<AverageArray>,
     pub extremal_elements: Option<ElementArray>,
     pub pulse_heights: Option<Arc<[f64]>>,
-    pub pulse_times: Option<Arc<[f64]>>,
+    pub peak_times: Option<Arc<[f64]>>,
     pub pulse_areas: Option<Arc<[f64]>>,
     pub trigger_times: Option<TriggerTimeArray>,
     pub pulse_rise_times: Option<TriggerTimeRangeArray>,
@@ -611,6 +630,7 @@ pub struct WaveformParamArray {
 #[derive(Debug, Clone)]
 pub struct Waveform {
     pub trace: Trace,
+    pub detector: Detector,
     pub vcal: LinearCalibration,
     pub time_channel_disp: f64,
     pub global_time_offset: u64,
@@ -629,6 +649,7 @@ pub struct WaveformList {
 #[derive(Debug, Clone)]
 pub struct WaveformArray {
     pub traces: Arc<[Trace]>,
+    pub detector: Detector,
     pub time_channel_disp: f64,
     pub global_time_offsets: Arc<[u64]>,
     pub vcal: LinearCalibration,
@@ -641,6 +662,7 @@ pub struct WaveformArray {
 impl Waveform {
     pub fn new(
         trace: Trace,
+        detector: Detector,
         vcal: LinearCalibration,
         time_channel_disp: f64,
         global_time_offset: u64,
@@ -648,6 +670,7 @@ impl Waveform {
     ) -> Self {
         Waveform {
             trace,
+            detector,
             vcal,
             time_channel_disp,
             global_time_offset,
@@ -657,7 +680,7 @@ impl Waveform {
                 baseline: None,
                 extremal_element: None,
                 pulse_height: None,
-                pulse_time: None,
+                peak_time: None,
                 pulse_area: None,
                 pulse_rise_time: None,
                 pulse_decay_time: None,
@@ -773,7 +796,7 @@ impl Waveform {
         let pulse_height = (baseline.mean - extr).abs();
 
         self.params.pulse_height = Some(pulse_height);
-        self.params.pulse_time = Some(extr_idx);
+        self.params.peak_time = Some(extr_idx);
 
         Ok((extr_idx, pulse_height))
     }
@@ -961,6 +984,7 @@ impl WaveformList {
 
                     filter.filter(&Waveform {
                         trace: waveform.trace.clone(),
+                        detector: waveform.detector.clone(),
                         vcal: waveform.vcal,
                         time_channel_disp: waveform.time_channel_disp,
                         global_time_offset: waveform.global_time_offset,
@@ -987,6 +1011,7 @@ impl WaveformList {
 impl WaveformArray {
     pub fn new(
         traces: Vec<Trace>,
+        detector: Detector,
         time_channel_disp: f64,
         global_time_offsets: Vec<u64>,
         vcal: LinearCalibration,
@@ -995,6 +1020,7 @@ impl WaveformArray {
         let l = traces.len();
         WaveformArray {
             traces: Arc::from(traces),
+            detector,
             vcal,
             time_channel_disp,
             global_time_offsets: Arc::from(global_time_offsets),
@@ -1005,7 +1031,7 @@ impl WaveformArray {
                 extremal_elements: None,
                 pulse_heights: None,
                 pulse_areas: None,
-                pulse_times: None,
+                peak_times: None,
                 pulse_rise_times: None,
                 pulse_decay_times: None,
                 trigger_times: None,
@@ -1019,6 +1045,7 @@ impl WaveformArray {
         let i = self.active_indices[index];
         Waveform {
             trace: self.traces[i].clone(),
+            detector: self.detector.clone(),
             vcal: self.vcal,
             time_channel_disp: self.time_channel_disp,
             global_time_offset: self.global_time_offsets[i],
@@ -1036,8 +1063,8 @@ impl WaveformArray {
                     }),
                 pulse_height:
                     self.params.pulse_heights.as_deref().map(|arr| arr[index]),
-                pulse_time:
-                    self.params.pulse_times.as_deref().map(|arr| arr[index]),
+                peak_time:
+                    self.params.peak_times.as_deref().map(|arr| arr[index]),
                 pulse_area:
                     self.params.pulse_areas.as_deref().map(|arr| arr[index]),
                 trigger_time:
@@ -1188,12 +1215,12 @@ impl WaveformArray {
         let extremal_elements = self.params.extremal_elements.as_ref().unwrap();
 
         let mut pulse_heights = Vec::with_capacity(self.active_indices.len());
-        let mut pulse_times = Vec::with_capacity(self.active_indices.len());
+        let mut peak_times = Vec::with_capacity(self.active_indices.len());
 
         for (i, &idx) in self.active_indices.iter().enumerate() {
             if !contains_pulse[i] {
                 pulse_heights.push(f64::NAN);
-                pulse_times.push(f64::NAN);
+                peak_times.push(f64::NAN);
                 continue;
             }
 
@@ -1209,18 +1236,18 @@ impl WaveformArray {
                 pulse_height_determination_method,
             ) else {
                 pulse_heights.push(f64::NAN);
-                pulse_times.push(f64::NAN);
+                peak_times.push(f64::NAN);
                 continue;
             };
 
             let pulse_height = (baseline- extr).abs();
 
             pulse_heights.push(pulse_height);
-            pulse_times.push(self.time_channel_disp * extr_idx);
+            peak_times.push(self.time_channel_disp * extr_idx);
         }
 
         self.params.pulse_heights = Some(Arc::from(pulse_heights));
-        self.params.pulse_times = Some(Arc::from(pulse_times));
+        self.params.peak_times = Some(Arc::from(peak_times));
 
         Ok(())
     }
@@ -1441,6 +1468,7 @@ impl WaveformArray {
 
         WaveformArray {
             traces: self.traces.clone(),
+            detector: self.detector.clone(),
             vcal: self.vcal,
             time_channel_disp: self.time_channel_disp,
             global_time_offsets: self.global_time_offsets.clone(),
@@ -1467,7 +1495,7 @@ impl WaveformArray {
                 pulse_areas: self.params.pulse_areas.as_ref().and_then(
                     |arr| Some(active_indices.iter().map(|&i| arr[i]).collect())
                 ),
-                pulse_times: self.params.pulse_times.as_ref().and_then(
+                peak_times: self.params.peak_times.as_ref().and_then(
                     |arr| Some(active_indices.iter().map(|&i| arr[i]).collect())
                 ),
                 trigger_times: self.params.trigger_times.as_ref().and_then(
@@ -1497,83 +1525,109 @@ impl WaveformArray {
 
 
     pub fn to_eventlist(
-        &self, columns: &[EventListColumnType],
+        &self, columns: HashMap<WaveformParam, String>,
     ) -> Result<EventList, AnalysisError> {
-        let mut eventlist = EventList {
-            columns: Vec::new(),
-        };
+        let mut elist = HashMap::new();
 
-        for col in columns {
-            match col {
-                EventListColumnType::Timestamp => {
-                    let Some(trigger_times) = &self.params.trigger_times else {
+        for (param, col_name) in columns.into_iter() {
+            match param {
+                WaveformParam::Baseline => {
+                    let Some(baselines) = &self.params.baselines else {
                         return Err(AnalysisError::MissingEventListColumn {
-                            missing_column: "trigger_times".into()
+                            missing_column: param
                         });
                     };
 
-                    eventlist.columns.push(
-                        EventListColumn::Timestamp(
-                            Arc::from(self.global_time_offsets
-                                .iter()
-                                .zip(trigger_times.values.iter())
-                                .map(|(&t_g, &t_l)| t_g + t_l as u64)
-                                .collect::<Vec<_>>()
-                            )
-                        )
-                    )
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(baselines.means.clone()),
+                    );
                 },
-                EventListColumnType::PulseHeight => {
+                WaveformParam::PulseHeight => {
                     let Some(pulse_heights) = &self.params.pulse_heights else {
                         return Err(AnalysisError::MissingEventListColumn {
-                            missing_column: "pulse_heights".into()
+                            missing_column: param
                         });
                     };
 
-                    eventlist.columns.push(
-                        EventListColumn::PulseHeight(pulse_heights.clone())
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(pulse_heights.clone()),
                     );
                 },
-                EventListColumnType::PulseArea => {
+                WaveformParam::PeakTime => {
+                    let Some(peak_times) = &self.params.peak_times else {
+                        return Err(AnalysisError::MissingEventListColumn {
+                            missing_column: param
+                        });
+                    };
+
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(peak_times.clone()),
+                    );
+                },
+                WaveformParam::PulseArea => {
                     let Some(pulse_areas) = &self.params.pulse_areas else {
                         return Err(AnalysisError::MissingEventListColumn {
-                            missing_column: "pulse_areas".into()
+                            missing_column: param
                         });
                     };
 
-                    eventlist.columns.push(
-                        EventListColumn::PulseHeight(pulse_areas.clone())
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(pulse_areas.clone()),
                     );
                 },
-                EventListColumnType::PulseRiseTime => {
-                    let Some(pulse_rise_times) = &self.params.pulse_rise_times else {
+                WaveformParam::TriggerTime => {
+                    let Some(trigger_times) = &self.params.trigger_times else {
                         return Err(AnalysisError::MissingEventListColumn {
-                            missing_column: "pulse_rise_times".into()
+                            missing_column: param
                         });
                     };
 
-                    eventlist.columns.push(
-                        EventListColumn::PulseHeight(
-                            pulse_rise_times.values.clone()
-                        )
+                    elist.insert(
+                        col_name,
+                        EventListColumn::U64(
+                            Arc::from(
+                                self.global_time_offsets
+                                    .iter()
+                                    .zip(trigger_times.values.iter())
+                                    .map(|(&t_g, &t_l)| t_g + t_l as u64)
+                                    .collect::<Vec<_>>()
+                            )
+                        ),
                     );
                 },
-                EventListColumnType::PulseDecayTime => {
-                    let Some(pulse_decay_times) = &self.params.pulse_decay_times else {
+                WaveformParam::RiseTime => {
+                    let Some(rise_times) = &self.params.pulse_rise_times else {
                         return Err(AnalysisError::MissingEventListColumn {
-                            missing_column: "pulse_decay_times".into()
+                            missing_column: param
                         });
                     };
 
-                    eventlist.columns.push(
-                        EventListColumn::PulseHeight(
-                            pulse_decay_times.values.clone()
-                        )
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(rise_times.values.clone()),
+                    );
+                },
+                WaveformParam::DecayTime => {
+                    let Some(decay_times) = &self.params.pulse_decay_times else {
+                        return Err(AnalysisError::MissingEventListColumn {
+                            missing_column: param
+                        });
+                    };
+
+                    elist.insert(
+                        col_name,
+                        EventListColumn::F64(decay_times.values.clone()),
                     );
                 },
             }
         }
 
-        Ok(eventlist)
+        Ok(EventList::try_new_with_active_indices(
+            self.detector.clone(), elist, self.active_indices.clone()
+        )?)
     }
 }

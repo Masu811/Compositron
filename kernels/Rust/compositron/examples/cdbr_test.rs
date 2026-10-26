@@ -51,13 +51,13 @@ fn import_csv(
             name: "A x B".into(),
             first_det: EnergyDetector {
                 name: "A".into(),
-                ecal: LinearCalibration { offset, scale },
+                ecal: Some(LinearCalibration { offset, scale }),
                 corrected_ecal: None,
                 eres: None
             },
             second_det: EnergyDetector {
                 name: "B".into(),
-                ecal: LinearCalibration { offset, scale },
+                ecal: Some(LinearCalibration { offset, scale }),
                 corrected_ecal: None,
                 eres: None
             },

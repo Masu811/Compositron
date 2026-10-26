@@ -1,3 +1,5 @@
+use std::{fs::File, io::Read};
+
 use num_traits::Unsigned;
 use nalgebra::{DMatrix, DVector};
 
@@ -32,11 +34,45 @@ impl LinearCalibration {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct Detector {
+    pub name: String,
+    pub ecal: Option<LinearCalibration>,
+    pub tcal: Option<LinearCalibration>,
+    pub eres: Option<f64>,
+    pub tres: Option<f64>,
+}
+
+impl From<&str> for Detector {
+    fn from(value: &str) -> Self {
+        Detector {
+            name: value.into(), ecal: None, tcal: None, eres: None, tres: None,
+        }
+    }
+}
+
+impl From<&String> for Detector {
+    fn from(value: &String) -> Self {
+        Detector {
+            name: value.into(), ecal: None, tcal: None, eres: None, tres: None,
+        }
+    }
+}
+
+impl From<String> for Detector {
+    fn from(value: String) -> Self {
+        Detector {
+            name: value.into(), ecal: None, tcal: None, eres: None, tres: None,
+        }
+    }
+}
+
 // DBS
 #[derive(Debug, Clone)]
 pub struct EnergyDetector {
     pub name: String,
-    pub ecal: LinearCalibration,
+    pub ecal: Option<LinearCalibration>,
     pub corrected_ecal: Option<LinearCalibration>,
     pub eres: Option<f64>,
 }
@@ -54,7 +90,7 @@ pub struct EnergyDetectorPair {
 #[derive(Debug, Clone)]
 pub struct TimingDetectorPair {
     pub name: String,
-    pub tcal: LinearCalibration,
+    pub tcal: Option<LinearCalibration>,
     pub corrected_tcal: Option<LinearCalibration>,
     pub tres: Option<f64>,
 }
@@ -356,4 +392,80 @@ impl LossyIntoF64 for f32 {
 
 impl LossyIntoF64 for f64 {
     fn lossy_into_f64(x: f64) -> f64 { x }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ByteOrder {
+    LittleEndian,
+    BigEndian,
+}
+
+
+pub trait FromBytes<const N: usize> {
+    fn from_bytes(bytes: [u8; N], order: ByteOrder) -> Self;
+}
+
+
+macro_rules! impl_from_bytes {
+    ($target_type:ident, $size:expr) => {
+        impl FromBytes<$size> for $target_type {
+            fn from_bytes(bytes: [u8; $size], order: ByteOrder) -> Self {
+                match order {
+                    ByteOrder::LittleEndian => $target_type::from_le_bytes(bytes),
+                    ByteOrder::BigEndian => $target_type::from_be_bytes(bytes),
+                }
+            }
+        }
+    };
+}
+
+
+impl_from_bytes!(u8, 1);
+impl_from_bytes!(u16, 2);
+impl_from_bytes!(u32, 4);
+impl_from_bytes!(u64, 8);
+impl_from_bytes!(u128, 16);
+impl_from_bytes!(i8, 1);
+impl_from_bytes!(i16, 2);
+impl_from_bytes!(i32, 4);
+impl_from_bytes!(i64, 8);
+impl_from_bytes!(i128, 16);
+impl_from_bytes!(f32, 4);
+impl_from_bytes!(f64, 8);
+
+
+pub fn read_num<const N: usize, T: FromBytes<N>>(
+    file: &mut impl Read,
+    order: ByteOrder,
+) -> Result<T, std::io::Error> {
+    let mut buffer = [0u8; N];
+    file.read_exact(&mut buffer)?;
+    Ok(T::from_bytes(buffer, order))
+}
+
+
+pub fn read_num_from_bytes<const N: usize, T: FromBytes<N>>(
+    buffer: &[u8], order: ByteOrder,
+) -> Result<T, std::io::Error> {
+    Ok(T::from_bytes(buffer.try_into().ok().unwrap(), order))
+}
+
+
+pub fn read_str<const N_BYTES: usize>(
+    file: &mut impl Read,
+) -> Result<String, std::io::Error> {
+    let mut buffer = [0u8; N_BYTES];
+    file.read_exact(&mut buffer)?;
+    Ok(String::from_utf8_lossy(&buffer).into())
+}
+
+
+pub fn read_str_dyn(
+    file: &mut impl Read, n_bytes: usize,
+) -> Result<String, std::io::Error> {
+    let mut buffer = Vec::new();
+    buffer.resize(n_bytes, 0u8);
+    file.read_exact(&mut buffer)?;
+    Ok(String::from_utf8_lossy(&buffer).into())
 }

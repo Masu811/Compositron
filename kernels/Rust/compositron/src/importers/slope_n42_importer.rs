@@ -492,7 +492,7 @@ fn import_dbspectrum(
 
     let detector = EnergyDetector {
         name: detname.clone(),
-        ecal,
+        ecal: Some(ecal),
         corrected_ecal: None,
         eres: None,
     };
@@ -552,7 +552,7 @@ fn get_ecal(
     let detname = get_or_parse_detname(det_id, detectors, parsed_detnames)?;
 
     match m.dbs.get(&detname) {
-        Some(spectrum) => Ok(spectrum.detector.ecal),
+        Some(spectrum) => Ok(spectrum.detector.ecal.unwrap()),
         None => {
             Err(N42FormatError::DanglingReferenceError {
                 node: "RadDetector1Name".into(),
@@ -651,14 +651,14 @@ fn import_cdbspectrum(
 
     let first_det = EnergyDetector {
         name: det_1_name,
-        ecal: ecal.0,
+        ecal: Some(ecal.0),
         corrected_ecal: None,
         eres: None,
     };
 
     let second_det = EnergyDetector {
         name: det_2_name,
-        ecal: ecal.1,
+        ecal: Some(ecal.1),
         corrected_ecal: None,
         eres: None,
     };

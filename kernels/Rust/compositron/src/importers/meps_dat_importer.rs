@@ -266,9 +266,9 @@ fn import_palspectrum(filepath: &PathBuf, m: &mut Measurement) -> Result<PALSpec
 
     let detpair = TimingDetectorPair {
         name: "A".into(),
-        tcal: LinearCalibration {
+        tcal: Some(LinearCalibration {
             offset: 0., scale: 1000. * header_info.bin_width
-        },
+        }),
         corrected_tcal: None,
         tres: None,
     };
@@ -317,7 +317,7 @@ fn import_ph_spectrum(filepath: &PathBuf) -> Option<DBSpectrum> {
 
     let detector = EnergyDetector {
         name: "".into(),
-        ecal: LinearCalibration { offset: f64::NAN, scale: f64::NAN },
+        ecal: None,
         corrected_ecal: None,
         eres: None,
     };

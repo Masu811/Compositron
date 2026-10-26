@@ -38,6 +38,9 @@ pub enum AnalysisError {
     #[error("No peak detected")]
     NoPeakDetected,
 
+    #[error("Missing energy calibration")]
+    MissingEnergyCalibration,
+
     #[error("Lineshape numerator or denominator areas overlap")]
     OverlappingAreas,
 
@@ -205,12 +208,14 @@ impl DBSpectrum {
     }
 
 
-    fn get_peak_energies(&self) -> Vec<f64> {
-        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
+    fn get_peak_energies(&self) -> Result<Vec<f64>, AnalysisError> {
+        let ecal = self.detector.corrected_ecal.or(self.detector.ecal).ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
 
         let bnds = self.peak_bnd_idcs.unwrap();
 
-        (bnds.0..=bnds.1).map(|i| ecal.from_index(i)).collect::<Vec<f64>>()
+        Ok((bnds.0..=bnds.1).map(|i| ecal.from_index(i)).collect::<Vec<f64>>())
     }
 
 
@@ -227,7 +232,7 @@ impl DBSpectrum {
     fn fit_peak(
         &mut self, peak_model: PeakModel,
     ) -> Result<(), AnalysisError> {
-        let x = self.get_peak_energies();
+        let x = self.get_peak_energies()?;
         let y = self.peak.as_ref().unwrap();
 
         let max = y.iter().max_by(|&a, &b| a.total_cmp(b)).map_or(100., |&x| x);
@@ -285,7 +290,7 @@ impl DBSpectrum {
 
         self.fit_peak(peak_model)?;
 
-        let x = self.get_peak_energies();
+        let x = self.get_peak_energies()?;
         let y = self.peak.as_mut().unwrap();
 
         let corr = match peak_model {
@@ -336,7 +341,9 @@ impl DBSpectrum {
     pub fn extract_peak(
         &mut self, peak_width: f64, peak_model: PeakModel,
     ) -> Result<(), AnalysisError> {
-        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
+        let ecal = self.detector.corrected_ecal.or(self.detector.ecal).ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
 
         let left_peak_idx = ecal.to_index_rounded(M_E_KEV - peak_width / 2.);
         let right_peak_idx = ecal.to_index_rounded(M_E_KEV + peak_width / 2.);
@@ -378,7 +385,9 @@ impl DBSpectrum {
 
         let c = self.peak_fits.gauss.as_ref().unwrap().params.center.val;
 
-        let mut ecal = self.detector.ecal;
+        let mut ecal = self.detector.ecal.ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
 
         match order {
             EcalCorrectionOrder::Zeroth => {
@@ -528,7 +537,9 @@ impl DBSpectrum {
             });
         }
 
-        let ecal = self.detector.corrected_ecal.unwrap_or(self.detector.ecal);
+        let ecal = self.detector.corrected_ecal.or(self.detector.ecal).ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
 
         let mut lower_ch_bnd = ecal.to_index_f64(lower_bnd);
         let mut upper_ch_bnd = ecal.to_index_f64(upper_bnd);

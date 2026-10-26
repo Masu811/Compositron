@@ -1,11 +1,10 @@
 use std::fs::File;
 use std::io::{Seek, Read};
-use std::path::Path;
 use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::core::utils::LinearCalibration;
+use crate::core::utils::{ByteOrder, Detector, LinearCalibration, read_num, read_str};
 use crate::waveforms::waveform::{PulsePolarity, Trace, WaveformArray};
 
 
@@ -185,63 +184,6 @@ pub enum WaveDesc1FieldOffset {
     VerticalVernier = 336,
     AcqVerticalOffset = 340,
     WaveSource = 344,
-}
-
-
-#[derive(Debug, Clone, Copy)]
-pub enum ByteOrder {
-    LittleEndian,
-    BigEndian,
-}
-
-
-trait FromBytes<const N: usize> {
-    fn from_bytes(bytes: [u8; N], order: ByteOrder) -> Self;
-}
-
-
-macro_rules! impl_from_bytes {
-    ($target_type:ident, $size:expr) => {
-        impl FromBytes<$size> for $target_type {
-            fn from_bytes(bytes: [u8; $size], order: ByteOrder) -> Self {
-                match order {
-                    ByteOrder::LittleEndian => $target_type::from_le_bytes(bytes),
-                    ByteOrder::BigEndian => $target_type::from_be_bytes(bytes),
-                }
-            }
-        }
-    };
-}
-
-
-impl_from_bytes!(i16, 2);
-impl_from_bytes!(i32, 4);
-impl_from_bytes!(f32, 4);
-impl_from_bytes!(f64, 8);
-impl_from_bytes!(u8, 1);
-
-
-fn read_num<const N: usize, T: FromBytes<N>>(
-    file: &mut File,
-    order: ByteOrder,
-) -> Result<T, TRCImportError> {
-    let mut buffer = [0u8; N];
-    file.read_exact(&mut buffer)?;
-    Ok(T::from_bytes(buffer, order))
-}
-
-
-fn read_str<const N: usize>(file: &mut File) -> Result<String, TRCImportError> {
-    let mut buffer = [0u8; N];
-    file.read_exact(&mut buffer)?;
-
-    Ok(
-        buffer
-            .iter()
-            .map(|&c| c as char)
-            .filter(|&c| c.is_alphanumeric())
-            .collect::<String>()
-    )
 }
 
 
@@ -517,6 +459,7 @@ fn read_data_array(
 
 pub fn import_lecroy_trc(
     path: &str,
+    detector: Detector,
     peak_polarity: PulsePolarity,
 ) -> Result<WaveformArray, TRCImportError> {
     let mut file = File::open(path)?;
@@ -625,6 +568,7 @@ pub fn import_lecroy_trc(
 
     Ok(WaveformArray::new(
         traces,
+        detector,
         (trc_file.descriptor.horizontal_interval as f64) * 1e12,
         trigger_times,
         LinearCalibration {

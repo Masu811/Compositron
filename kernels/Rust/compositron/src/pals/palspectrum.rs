@@ -17,6 +17,9 @@ pub enum AnalysisError {
         #[from]
         source: LMFitError
     },
+
+    #[error("Missing time calibration")]
+    MissingTimeCalibration,
 }
 
 
@@ -123,7 +126,9 @@ impl PALSpectrum {
                 .collect::<Vec<f64>>()
         );
 
-        let tcal = self.detpair.corrected_tcal.unwrap_or(self.detpair.tcal);
+        let tcal = self.detpair.corrected_tcal.or(self.detpair.tcal).ok_or(
+            AnalysisError::MissingTimeCalibration
+        )?;
 
         let x = roi.map(|i| tcal.from_index(i)).collect::<Vec<f64>>();
 

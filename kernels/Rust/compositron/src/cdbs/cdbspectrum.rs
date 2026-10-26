@@ -60,6 +60,9 @@ pub enum AnalysisError {
     )]
     NoPeakExtracted,
 
+    #[error("Missing energy calibration")]
+    MissingEnergyCalibration,
+
     #[error("Error during fitting")]
     FitError {
         #[from]
@@ -89,11 +92,6 @@ pub enum AnalysisError {
 
     #[error("Could not fold projection as bins are not symmetric around 0")]
     FoldError,
-
-    #[error(
-        "Could not convert projection to DBSpectrum due to missing energy calibration"
-    )]
-    ProjectionConversionError,
 }
 
 
@@ -517,7 +515,7 @@ impl Projection {
 
     pub fn to_dbspectrum(&self) -> Result<DBSpectrum, AnalysisError> {
         let Some(ecal) = self.ecal else {
-            return Err(AnalysisError::ProjectionConversionError);
+            return Err(AnalysisError::MissingEnergyCalibration);
         };
 
         Ok(DBSpectrum::new(
@@ -526,7 +524,7 @@ impl Projection {
             ),
             EnergyDetector {
                 name: self.parent_detpair_name.clone(),
-                ecal,
+                ecal: Some(ecal),
                 corrected_ecal: None,
                 eres: None,
             }
@@ -580,12 +578,12 @@ impl CDBSpectrum {
         max_length: Unit,
         in_corrected_peak: bool,
     ) -> Result<Projection, AnalysisError> {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+        let ecal_1 = self.detpair.first_det.corrected_ecal.or(
             self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
+        let ecal_2 = self.detpair.second_det.corrected_ecal.or(
             self.detpair.second_det.ecal
-        );
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if in_corrected_peak {
@@ -798,7 +796,9 @@ impl CDBSpectrum {
                     spectrum,
                     self.detpair.name.clone(),
                     onto_axis,
-                    Some(self.detpair.first_det.ecal),
+                    self.detpair.first_det.corrected_ecal.or(
+                        self.detpair.first_det.ecal
+                    ),
                     None,
                 ))
             },
@@ -816,7 +816,9 @@ impl CDBSpectrum {
                     spectrum,
                     self.detpair.name.clone(),
                     onto_axis,
-                    Some(self.detpair.second_det.ecal),
+                    self.detpair.second_det.corrected_ecal.or(
+                        self.detpair.second_det.ecal
+                    ),
                     None,
                 ))
             },
@@ -838,12 +840,12 @@ impl CDBSpectrum {
             return Err(AnalysisError::NoPeakExtracted);
         };
 
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+        let ecal_1 = self.detpair.first_det.corrected_ecal.or(
             self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
+        let ecal_2 = self.detpair.second_det.corrected_ecal.or(
             self.detpair.second_det.ecal
-        );
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
 
         let nrows = peak_bnds.0.1 - peak_bnds.0.0 + 1;
         let ncols = peak_bnds.1.1 - peak_bnds.1.0 + 1;
@@ -910,13 +912,13 @@ impl CDBSpectrum {
         &mut self,
         peak_window_kev: (f64, f64),
         bg_model: BackgroundModel,
-    ) {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+    ) -> Result<(), AnalysisError> {
+        let ecal_1 = self.detpair.first_det.corrected_ecal.or(
             self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
+        let ecal_2 = self.detpair.second_det.corrected_ecal.or(
             self.detpair.second_det.ecal
-        );
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
 
         let origin = if self.orientation == Orientation::DetAligned {
             M_E_KEV
@@ -949,6 +951,8 @@ impl CDBSpectrum {
         self.subtract_bg(bg_model);
 
         self.peak_counts = Some(self.peak.as_ref().unwrap().sum());
+
+        Ok(())
     }
 
 
@@ -960,7 +964,7 @@ impl CDBSpectrum {
         }
 
         if self.peak.is_none() {
-            self.extract_peak((4., 4.), BackgroundModel::None);
+            self.extract_peak((4., 4.), BackgroundModel::None)?;
         }
 
         if self.peak_fits.gauss.is_none() {
@@ -971,8 +975,12 @@ impl CDBSpectrum {
         let x0 = params.x0.val;
         let y0 = params.y0.val;
 
-        let mut ecal_1 = self.detpair.first_det.ecal;
-        let mut ecal_2 = self.detpair.second_det.ecal;
+        let mut ecal_1 = self.detpair.first_det.ecal.ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
+        let mut ecal_2 = self.detpair.second_det.ecal.ok_or(
+            AnalysisError::MissingEnergyCalibration
+        )?;
 
         let origin = match &self.orientation {
             Orientation::DetAligned => M_E_KEV,
@@ -1263,12 +1271,12 @@ impl CDBSpectrum {
         area: &Area,
         in_corrected_peak: bool,
     ) -> Result<f64, AnalysisError> {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+        let ecal_1 = self.detpair.first_det.corrected_ecal.or(
             self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
+        let ecal_2 = self.detpair.second_det.corrected_ecal.or(
             self.detpair.second_det.ecal
-        );
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if in_corrected_peak {
@@ -1392,12 +1400,12 @@ impl CDBSpectrum {
         &mut self,
         definition: &LineshapeParamDefinition,
     ) -> Result<&LineshapeParam, AnalysisError> {
-        let ecal_1 = self.detpair.first_det.corrected_ecal.unwrap_or(
+        let ecal_1 = self.detpair.first_det.corrected_ecal.or(
             self.detpair.first_det.ecal
-        );
-        let ecal_2 = self.detpair.second_det.corrected_ecal.unwrap_or(
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
+        let ecal_2 = self.detpair.second_det.corrected_ecal.or(
             self.detpair.second_det.ecal
-        );
+        ).ok_or(AnalysisError::MissingEnergyCalibration)?;
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if definition.in_corrected_peak {
@@ -1522,7 +1530,7 @@ impl CDBSpectrum {
     pub fn default_analyze(&mut self) -> Result<(), AnalysisError> {
         self.correct_ecal(EcalCorrectionOrder::First)?;
 
-        self.extract_peak((10., 10.), BackgroundModel::None);
+        self.extract_peak((10., 10.), BackgroundModel::None)?;
 
         for param in STD_LINESHAPE_PARAMS {
             self.calc_lineshape_param(param)?;
