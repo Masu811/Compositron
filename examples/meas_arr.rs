@@ -1,4 +1,4 @@
-use compositron::{core::measurement_array::MeasurementArray, importers::DataFormat};
+use compositron::{core::MeasurementArray, importers::DataFormat};
 
 fn main() -> anyhow::Result<()> {
     let dir = "/home/max/2026-09-05_depth-profile_Li_Reference/";

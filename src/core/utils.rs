@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::io::Read;
 
 use num_traits::Unsigned;
 use nalgebra::{DMatrix, DVector};
@@ -11,6 +11,7 @@ pub struct LinearCalibration {
     pub offset: f64,
     pub scale: f64,
 }
+
 
 impl LinearCalibration {
     pub fn from_index(&self, index: usize) -> f64 {
@@ -44,6 +45,7 @@ pub struct Detector {
     pub tres: Option<f64>,
 }
 
+
 impl From<&str> for Detector {
     fn from(value: &str) -> Self {
         Detector {
@@ -51,6 +53,7 @@ impl From<&str> for Detector {
         }
     }
 }
+
 
 impl From<&String> for Detector {
     fn from(value: &String) -> Self {
@@ -60,6 +63,7 @@ impl From<&String> for Detector {
     }
 }
 
+
 impl From<String> for Detector {
     fn from(value: String) -> Self {
         Detector {
@@ -67,6 +71,7 @@ impl From<String> for Detector {
         }
     }
 }
+
 
 // DBS
 #[derive(Debug, Clone)]
@@ -77,6 +82,7 @@ pub struct EnergyDetector {
     pub eres: Option<f64>,
 }
 
+
 // CDBS
 #[derive(Debug, Clone)]
 pub struct EnergyDetectorPair {
@@ -86,6 +92,7 @@ pub struct EnergyDetectorPair {
     pub eres: Option<f64>,
 }
 
+
 // PALS
 #[derive(Debug, Clone)]
 pub struct TimingDetectorPair {
@@ -94,6 +101,7 @@ pub struct TimingDetectorPair {
     pub corrected_tcal: Option<LinearCalibration>,
     pub tres: Option<f64>,
 }
+
 
 // AMOC
 #[derive(Debug, Clone)]
@@ -111,12 +119,14 @@ pub enum EcalCorrectionOrder {
     None
 }
 
+
 #[derive(Debug, Clone, Copy)]
 pub enum Unit {
     KeV(f64),
     M0C(f64),
     Eres(f64),
 }
+
 
 impl Unit {
     pub fn to_kev(&self, eres: Option<f64>) -> Option<f64> {
@@ -128,6 +138,7 @@ impl Unit {
     }
 }
 
+
 #[derive(Debug)]
 pub enum Spectrum {
     U8(DVector<u8>),
@@ -135,6 +146,7 @@ pub enum Spectrum {
     U32(DVector<u32>),
     U64(DVector<u64>),
 }
+
 
 #[macro_export]
 macro_rules! spectrum_match {
@@ -148,13 +160,16 @@ macro_rules! spectrum_match {
     };
 }
 
+
 pub(crate) use spectrum_match;
+
 
 impl From<Vec<u8>> for Spectrum {
     fn from(other: Vec<u8>) -> Spectrum {
         Spectrum::U8(DVector::from_vec(other))
     }
 }
+
 
 impl From<Vec<u16>> for Spectrum {
     fn from(other: Vec<u16>) -> Spectrum {
@@ -169,6 +184,7 @@ impl From<Vec<u16>> for Spectrum {
         }
     }
 }
+
 
 impl From<Vec<u32>> for Spectrum {
     fn from(other: Vec<u32>) -> Spectrum {
@@ -187,6 +203,7 @@ impl From<Vec<u32>> for Spectrum {
         }
     }
 }
+
 
 impl From<Vec<u64>> for Spectrum {
     fn from(other: Vec<u64>) -> Spectrum {
@@ -210,6 +227,7 @@ impl From<Vec<u64>> for Spectrum {
     }
 }
 
+
 impl Spectrum {
     pub fn len(&self) -> usize {
         spectrum_match!(self, spectrum => spectrum.len())
@@ -220,12 +238,14 @@ impl Spectrum {
     }
 }
 
+
 pub enum Spectrum2D {
     U8(DMatrix<u8>),
     U16(DMatrix<u16>),
     U32(DMatrix<u32>),
     U64(DMatrix<u64>),
 }
+
 
 #[macro_export]
 macro_rules! spectrum2d_match {
@@ -239,7 +259,9 @@ macro_rules! spectrum2d_match {
     };
 }
 
+
 pub(crate) use spectrum2d_match;
+
 
 impl Spectrum2D {
     pub fn nrows(&self) -> usize {
@@ -251,15 +273,18 @@ impl Spectrum2D {
     }
 }
 
+
 pub trait FromColMajor<T: Unsigned> {
     fn from_col_major(data: &Vec<T>, nrows: usize, ncols: usize) -> Self;
 }
+
 
 impl FromColMajor<u8> for Spectrum2D {
     fn from_col_major(data: &Vec<u8>, nrows: usize, ncols: usize) -> Self {
         Spectrum2D::U8(DMatrix::from_column_slice(nrows, ncols, data))
     }
 }
+
 
 impl FromColMajor<u16> for Spectrum2D {
     fn from_col_major(data: &Vec<u16>, ncols: usize, nrows: usize) -> Self {
@@ -273,6 +298,7 @@ impl FromColMajor<u16> for Spectrum2D {
         }
     }
 }
+
 
 impl FromColMajor<u32> for Spectrum2D {
     fn from_col_major(data: &Vec<u32>, ncols: usize, nrows: usize) -> Self {
@@ -289,6 +315,7 @@ impl FromColMajor<u32> for Spectrum2D {
         }
     }
 }
+
 
 impl FromColMajor<u64> for Spectrum2D {
     fn from_col_major(data: &Vec<u64>, ncols: usize, nrows: usize) -> Self {
@@ -309,15 +336,18 @@ impl FromColMajor<u64> for Spectrum2D {
     }
 }
 
+
 pub trait FromRowMajor<T: Unsigned> {
     fn from_row_major(data: &Vec<T>, nrows: usize, ncols: usize) -> Self;
 }
+
 
 impl FromRowMajor<u8> for Spectrum2D {
     fn from_row_major(data: &Vec<u8>, nrows: usize, ncols: usize) -> Self {
         Spectrum2D::U8(DMatrix::from_row_slice(nrows, ncols, data))
     }
 }
+
 
 impl FromRowMajor<u16> for Spectrum2D {
     fn from_row_major(data: &Vec<u16>, ncols: usize, nrows: usize) -> Self {
@@ -331,6 +361,7 @@ impl FromRowMajor<u16> for Spectrum2D {
         }
     }
 }
+
 
 impl FromRowMajor<u32> for Spectrum2D {
     fn from_row_major(data: &Vec<u32>, ncols: usize, nrows: usize) -> Self {
@@ -347,6 +378,7 @@ impl FromRowMajor<u32> for Spectrum2D {
         }
     }
 }
+
 
 impl FromRowMajor<u64> for Spectrum2D {
     fn from_row_major(data: &Vec<u64>, ncols: usize, nrows: usize) -> Self {
@@ -370,25 +402,31 @@ impl FromRowMajor<u64> for Spectrum2D {
 
 pub trait LossyIntoF64: Copy { fn lossy_into_f64(x: Self) -> f64; }
 
+
 impl LossyIntoF64 for u8 {
     fn lossy_into_f64(x: u8) -> f64 { x as f64 }
 }
+
 
 impl LossyIntoF64 for u16 {
     fn lossy_into_f64(x: u16) -> f64 { x as f64 }
 }
 
+
 impl LossyIntoF64 for u32 {
     fn lossy_into_f64(x: u32) -> f64 { x as f64 }
 }
+
 
 impl LossyIntoF64 for u64 {
     fn lossy_into_f64(x: u64) -> f64 { x as f64 }
 }
 
+
 impl LossyIntoF64 for f32 {
     fn lossy_into_f64(x: f32) -> f64 { x as f64 }
 }
+
 
 impl LossyIntoF64 for f64 {
     fn lossy_into_f64(x: f64) -> f64 { x }

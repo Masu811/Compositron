@@ -1,4 +1,4 @@
-use compositron::{cdbs::cdbspectrum::{Axis, ProjectionBins}, core::{measurement_list::MeasurementList, utils::Unit}, importers::DataFormat};
+use compositron::{cdbs::cdbspectrum::{Axis, ProjectionBins}, core::{MeasurementList, utils::Unit}, importers::DataFormat};
 use std::io::Write;
 
 

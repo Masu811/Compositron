@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use thiserror::Error;
 
 use crate::constants::FWHM_OVER_SIGMA;
@@ -36,11 +34,23 @@ pub enum ReportError {
 }
 
 
+pub struct GaussFitResult {
+    pub amplitude: SimpleFitParam,
+    pub peak_idx: SimpleFitParam,
+    pub fwhm: SimpleFitParam,
+}
+
+
+pub struct PeakFitResults {
+    pub gauss: Option<GaussFitResult>,
+}
+
+
 pub struct PALSpectrum {
     pub spectrum: Spectrum,
     pub detpair: TimingDetectorPair,
     pub counts: u64,
-    pub peak_params: HashMap<&'static str, SimpleFitParam>,
+    pub peak_params: PeakFitResults,
     pub fit_result: Option<FitResult>,
 }
 
@@ -58,7 +68,7 @@ impl PALSpectrum {
             spectrum,
             detpair,
             counts,
-            peak_params: HashMap::new(),
+            peak_params: PeakFitResults { gauss: None },
             fit_result: None,
         }
     }
@@ -89,17 +99,15 @@ impl PALSpectrum {
 
         let peak_params = fit_gauss(&x, &y, &vec![max as f64, argmax as f64, 100.])?;
 
-        let peak_height = peak_params.params.amplitude;
-        let peak_center = peak_params.params.center;
-        let peak_width = peak_params.params.sigma;
+        let x0 = peak_params.params.center.val;
 
-        let x0 = peak_center.val;
-
-        self.peak_params.insert("center_idx", peak_center);
-        self.peak_params.insert("height", peak_height);
-        self.peak_params.insert("fwhm", SimpleFitParam {
-            val: peak_width.val * FWHM_OVER_SIGMA,
-            err: peak_width.err * FWHM_OVER_SIGMA
+        self.peak_params.gauss = Some(GaussFitResult {
+            amplitude: peak_params.params.amplitude,
+            peak_idx: peak_params.params.center,
+            fwhm: SimpleFitParam {
+                val: peak_params.params.sigma.val * FWHM_OVER_SIGMA,
+                err: peak_params.params.sigma.err * FWHM_OVER_SIGMA
+            },
         });
 
         Ok(x0)
@@ -112,10 +120,12 @@ impl PALSpectrum {
         fit_start_idx: usize,
         fit_end_idx: usize,
     ) -> Result<(), AnalysisError> {
-        let peak_center = self.peak_params
-            .get("center_idx")
-            .map(|p| p.val)
-            .unwrap_or(self.get_peak_center()?);
+
+        let peak_center = if let Some(gauss) = &self.peak_params.gauss {
+            gauss.amplitude.val
+        } else {
+            self.get_peak_center()?
+        };
 
         let roi = fit_start_idx..fit_end_idx;
 
@@ -393,5 +403,38 @@ impl PALSpectrum {
         text.push_str(&thin_hline);
 
         Ok(text)
+    }
+}
+
+
+pub struct PALSpectrumArray {
+    pub detpair: TimingDetectorPair,
+    pub spectra: Vec<Spectrum>,
+    pub counts: Vec<u64>,
+    pub peak_params: Vec<PeakFitResults>,
+    pub fit_results: Option<Vec<FitResult>>,
+}
+
+
+impl PALSpectrumArray {
+    pub fn new(detpair: TimingDetectorPair) -> Self {
+        PALSpectrumArray {
+            detpair,
+            spectra: Vec::new(),
+            counts: Vec::new(),
+            peak_params: Vec::new(),
+            fit_results: None,
+        }
+    }
+
+
+    pub fn push(&mut self, p: PALSpectrum) {
+        self.spectra.push(p.spectrum);
+        self.counts.push(p.counts);
+    }
+
+
+    pub fn len(&self) -> usize {
+        self.spectra.len()
     }
 }

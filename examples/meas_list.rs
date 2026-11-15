@@ -1,4 +1,4 @@
-use compositron::{core::measurement_list::MeasurementList, importers::DataFormat};
+use compositron::{core::MeasurementList, importers::DataFormat};
 
 fn main() -> anyhow::Result<()> {
     let dir = "/home/max/2025-04-10_CDB_spectra_W3Re_irr_18keV/";

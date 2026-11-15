@@ -38,7 +38,7 @@ pub fn to_hist_each_match<T: Copy + Sub<Output = T> + PartialOrd>(
 
         let t_c = tarr_c[tidx_c];
 
-        for (&tidx_r, &bin_r) in tidcs_c[offset_r..].iter().zip(&barr_r[offset_r..]) {
+        for (&tidx_r, &bin_r) in tidcs_r[offset_r..].iter().zip(&barr_r[offset_r..]) {
             let t_r = tarr_r[tidx_r];
 
             if bin_r < u16::MAX && (t_r > t_c || t_c - t_r <= coinc_time_window) {

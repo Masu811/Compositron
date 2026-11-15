@@ -63,6 +63,7 @@ pub enum PeakModel {
     ErfLinear3Gauss,
 }
 
+
 pub struct PeakFitResults {
     pub gauss: Option<GaussFitResult>,
     pub erf_linear_1_gauss: Option<ErfLinear1GaussFitResult>,
@@ -666,5 +667,44 @@ impl DBSpectrum {
         self.peak_bnd_idcs = None;
 
         Ok(())
+    }
+}
+
+
+pub struct DBSpectrumArray {
+    pub detector: EnergyDetector,
+    pub spectra: Vec<Spectrum>,
+    pub counts: Vec<u64>,
+    pub peaks: Option<Vec<Vec<f64>>>,
+    pub peak_bnds: Option<Vec<(usize, usize)>>,
+    pub peak_counts: Option<Vec<f64>>,
+    pub peak_params: Vec<PeakFitResults>,
+    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
+}
+
+
+impl DBSpectrumArray {
+    pub fn new(detector: EnergyDetector) -> Self {
+        DBSpectrumArray {
+            detector,
+            spectra: Vec::new(),
+            counts: Vec::new(),
+            peaks: None,
+            peak_bnds: None,
+            peak_counts: None,
+            peak_params: Vec::new(),
+            lineshape_params: HashMap::new(),
+        }
+    }
+
+
+    pub fn push(&mut self, d: DBSpectrum) {
+        self.spectra.push(d.spectrum);
+        self.counts.push(d.counts);
+    }
+
+
+    pub fn len(&self) -> usize {
+        self.spectra.len()
     }
 }

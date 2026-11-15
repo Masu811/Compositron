@@ -101,7 +101,7 @@ pub enum BackgroundModel {
 }
 
 
-pub struct PeakFitResult {
+pub struct PeakFitResults {
     pub gauss: Option<Gauss2DFitResult>,
 }
 
@@ -541,7 +541,7 @@ pub struct CDBSpectrum {
     pub peak: Option<DMatrix<f64>>,
     pub peak_bnds: Option<((usize, usize), (usize, usize))>,
     pub peak_counts: Option<f64>,
-    pub peak_fits: PeakFitResult,
+    pub peak_fits: PeakFitResults,
     pub lineshape_params: HashMap<String, LineshapeParam>,
 }
 
@@ -563,9 +563,7 @@ impl CDBSpectrum {
             peak: None,
             peak_bnds: None,
             peak_counts: None,
-            peak_fits: PeakFitResult {
-                gauss: None
-            },
+            peak_fits: PeakFitResults { gauss: None },
             lineshape_params: HashMap::new(),
         }
     }
@@ -1537,5 +1535,46 @@ impl CDBSpectrum {
         }
 
         Ok(())
+    }
+}
+
+
+pub struct CDBSpectrumArray {
+    pub detpair: EnergyDetectorPair,
+    pub spectra: Vec<Spectrum2D>,
+    pub orientation: Orientation,
+    pub counts: Vec<u64>,
+    pub peaks: Option<Vec<DMatrix<f64>>>,
+    pub peak_bnds: Option<Vec<((usize, usize), (usize, usize))>>,
+    pub peak_counts: Option<Vec<f64>>,
+    pub peak_params: Vec<PeakFitResults>,
+    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
+}
+
+
+impl CDBSpectrumArray {
+    pub fn new(detpair: EnergyDetectorPair, orientation: Orientation) -> Self {
+        CDBSpectrumArray {
+            detpair,
+            spectra: Vec::new(),
+            orientation,
+            counts: Vec::new(),
+            peaks: None,
+            peak_bnds: None,
+            peak_counts: None,
+            peak_params: Vec::new(),
+            lineshape_params: HashMap::new(),
+        }
+    }
+
+
+    pub fn push(&mut self, c: CDBSpectrum) {
+        self.spectra.push(c.spectrum);
+        self.counts.push(c.counts);
+    }
+
+
+    pub fn len(&self) -> usize {
+        self.spectra.len()
     }
 }
