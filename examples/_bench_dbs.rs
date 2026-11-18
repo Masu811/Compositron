@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
         )?;
         imports.push(start.elapsed().as_nanos());
 
-        let d = m.dbs.get_mut("OAB").unwrap();
+        let d = m.dbs.spectra.get_mut("OAB").unwrap();
 
         let start = Instant::now();
         d.correct_ecal(EcalCorrectionOrder::First)?;

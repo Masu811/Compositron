@@ -479,7 +479,7 @@ fn import_dbspectrum(
     let det_id = find_attr(spectrum_node, N42Ref::Det.attr())?;
     let detname = get_or_parse_detname(det_id, detectors, parsed_detnames)?;
 
-    if m.dbs.contains_key(&detname) {
+    if m.dbs.spectra.contains_key(&detname) {
         return Err(N42FormatError::DuplicateNameError {
             name: detname.into(),
         });
@@ -497,7 +497,7 @@ fn import_dbspectrum(
         eres: None,
     };
 
-    m.dbs.insert(detname, DBSpectrum::new(spectrum, detector));
+    m.dbs.spectra.insert(detname, DBSpectrum::new(None, spectrum, detector));
 
     Ok(())
 }
@@ -551,7 +551,7 @@ fn get_ecal(
     let det_id = find_attr(&det_node, N42Ref::Detpair.attr())?;
     let detname = get_or_parse_detname(det_id, detectors, parsed_detnames)?;
 
-    match m.dbs.get(&detname) {
+    match m.dbs.spectra.get(&detname) {
         Some(spectrum) => Ok(spectrum.detector.ecal.unwrap()),
         None => {
             Err(N42FormatError::DanglingReferenceError {
@@ -624,7 +624,7 @@ fn import_cdbspectrum(
 
     let detpair_name = parse_detpair(&detpair_node)?;
 
-    if m.cdbs.contains_key(&detpair_name) {
+    if m.cdbs.spectra.contains_key(&detpair_name) {
         return Err(N42FormatError::DuplicateNameError {
             name: detpair_name.into(),
         });
@@ -670,9 +670,9 @@ fn import_cdbspectrum(
         eres: None,
     };
 
-    m.cdbs.insert(
+    m.cdbs.spectra.insert(
         detpair_name,
-        CDBSpectrum::new(spectrum, detpair, Orientation::DetAligned)
+        CDBSpectrum::new(None, spectrum, detpair, Orientation::DetAligned)
     );
 
     Ok(())
@@ -785,13 +785,13 @@ fn import_m(
 }
 
 
-pub fn import_n42(filename: &str) -> Result<Measurement, ImportError> {
-    let path = Path::new(filename);
+pub fn import_n42(filepath: &str) -> Result<Measurement, ImportError> {
+    let path = Path::new(filepath);
 
     let mut file = File::open(&path).map_err(
         |err| ImportError::FileSystemError {
             inner: err,
-            path: filename.into(),
+            path: filepath.into(),
         }
     )?;
 
@@ -800,14 +800,14 @@ pub fn import_n42(filename: &str) -> Result<Measurement, ImportError> {
     file.read_to_string(&mut s).map_err(
         |err| ImportError::FileSystemError {
             inner: err,
-            path: filename.into(),
+            path: filepath.into(),
         }
     )?;
 
     let doc = roxmltree::Document::parse(&s).map_err(
         |err| ImportError::XMLParseError {
             inner: err,
-            path: filename.into(),
+            path: filepath.into(),
         }
     )?;
 
@@ -816,12 +816,26 @@ pub fn import_n42(filename: &str) -> Result<Measurement, ImportError> {
     let mut m = import_m(&root, &path).map_err(
         |err| ImportError::InvalidN42FormatError {
             inner: err,
-            path: filename.into(),
+            path: filepath.into(),
         }
     )?;
 
-    m.name = Some(filename.into());
-    m.filename = Some(filename.into());
+    let filename = path
+        .with_extension("")
+        .file_name()
+        .and_then(|name| Some(name.to_string_lossy().to_string()));
+
+    m.name = filename.clone();
+
+    for dbspectrum in m.dbs.spectra.values_mut() {
+        dbspectrum.name = filename.clone();
+        dbspectrum.filename = filename.clone();
+    }
+
+    for cdbspectrum in m.cdbs.spectra.values_mut() {
+        cdbspectrum.name = filename.clone();
+        cdbspectrum.filename = filename.clone();
+    }
 
     Ok(m)
 }

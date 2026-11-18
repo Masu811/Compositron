@@ -61,14 +61,13 @@ struct HeaderInfo {
     bin_width: f64,
 }
 
-fn split_filepath_componentes<'a>(filepath: &'a str) -> Option<Vec<&'a str>> {
-    let provided_path = Path::new(filepath);
-    let provided_filename = provided_path.file_name()?.to_str()?;
+fn split_filepath_componentes<'a>(filepath: &'a Path) -> Option<Vec<&'a str>> {
+    let provided_filename = filepath.file_name()?.to_str()?;
     let filename_components: Vec<&str> = provided_filename.split("_").collect();
     Some(filename_components)
 }
 
-fn get_all_filenames(filepath: &str) -> Result<MePSFileBundle, ImportError> {
+fn get_all_filenames(filepath: &Path) -> Result<MePSFileBundle, ImportError> {
     let filename_components = split_filepath_componentes(filepath).ok_or(
         ImportError::FileSystemError {
             inner: std::io::Error::from(std::io::ErrorKind::InvalidFilename),
@@ -182,11 +181,8 @@ fn get_header_info(
     Ok(HeaderInfo { index, sample, energy, temperature, bin_width })
 }
 
-fn compare_filename_and_header(filepath: &PathBuf, header: &HeaderInfo) {
-    let Some(filename) = filepath.file_name() else { return; };
-    let Some(filename) = filename.to_str() else { return; };
-
-    let Some(filename_components) = split_filepath_componentes(filename) else {
+fn compare_filename_and_header(filepath: &Path, header: &HeaderInfo) {
+    let Some(filename_components) = split_filepath_componentes(filepath) else {
         return;
     };
 
@@ -273,7 +269,7 @@ fn import_palspectrum(filepath: &PathBuf, m: &mut Measurement) -> Result<PALSpec
         tres: None,
     };
 
-    Ok(PALSpectrum::new(spectrum, detpair))
+    Ok(PALSpectrum::new(None, spectrum, detpair))
 }
 
 fn import_params(filepath: &PathBuf, m: &mut Measurement) {
@@ -322,30 +318,54 @@ fn import_ph_spectrum(filepath: &PathBuf) -> Option<DBSpectrum> {
         eres: None,
     };
 
-    Some(DBSpectrum::new(spectrum, detector))
+    Some(DBSpectrum::new(None, spectrum, detector))
 }
 
 pub fn import_meps_dat(filepath: &str) -> Result<Measurement, ImportError> {
-    let datafiles = get_all_filenames(filepath)?;
+    let path = Path::new(filepath);
 
-    let dir = Path::new(filepath).parent().unwrap_or(Path::new(""));
+    let datafiles = get_all_filenames(path)?;
+
+    let dir = path.parent().unwrap_or(Path::new(""));
 
     let mut m = Measurement::new();
 
-    let p = import_palspectrum(&dir.join(datafiles.spectrum_file), &mut m)?;
+    m.name = Some(datafiles.spectrum_file.clone());
 
-    m.pals.insert("A".into(), p);
+    let mut p = import_palspectrum(&dir.join(&datafiles.spectrum_file), &mut m)?;
+
+    let filename = Path::new(&datafiles.spectrum_file)
+        .with_extension("")
+        .file_name()
+        .and_then(|name| Some(name.to_string_lossy().to_string()));
+
+    p.name = filename.clone();
+    p.filename = filename.clone();
+
+    m.pals.spectra.insert("A".into(), p);
 
     import_params(&dir.join(datafiles.param_file), &mut m);
 
-    if let Some(mut d1) = import_ph_spectrum(&dir.join(datafiles.start_phs_file)) {
-        d1.detector.name = "Start".into();
-        m.dbs.insert("Start".into(), d1);
+    if let Some(mut d) = import_ph_spectrum(&dir.join(&datafiles.start_phs_file)) {
+        let filename = Path::new(&datafiles.start_phs_file)
+            .with_extension("")
+            .file_name()
+            .and_then(|name| Some(name.to_string_lossy().to_string()));
+        d.name = filename.clone();
+        d.filename = filename.clone();
+        d.detector.name = "Start".into();
+        m.dbs.spectra.insert("Start".into(), d);
     }
 
-    if let Some(mut d2) = import_ph_spectrum(&dir.join(datafiles.stop_phs_file)) {
-        d2.detector.name = "Stop".into();
-        m.dbs.insert("Stop".into(), d2);
+    if let Some(mut d) = import_ph_spectrum(&dir.join(&datafiles.stop_phs_file)) {
+        let filename = Path::new(&datafiles.stop_phs_file)
+            .with_extension("")
+            .file_name()
+            .and_then(|name| Some(name.to_string_lossy().to_string()));
+        d.name = filename.clone();
+        d.filename = filename.clone();
+        d.detector.name = "Stop".into();
+        m.dbs.spectra.insert("Stop".into(), d);
     }
 
     Ok(m)

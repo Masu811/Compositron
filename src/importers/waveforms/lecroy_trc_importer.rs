@@ -567,6 +567,7 @@ pub fn import_lecroy_trc(
     }
 
     Ok(WaveformArray::new(
+        None,
         traces,
         detector,
         (trc_file.descriptor.horizontal_interval as f64) * 1e12,

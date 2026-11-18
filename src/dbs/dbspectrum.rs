@@ -52,6 +52,14 @@ pub enum AnalysisError {
 
     #[error("Could not convert units of eres to keV due to missing eres")]
     MissingEnergyResolution,
+
+    #[error("Cannot push DBSpectrum onto array due to mismatched detector")]
+    PushErrorByDetector,
+
+    #[error("Cannot push DBSpectrum onto array due to missing parameter: {param}")]
+    PushErrorByParameter {
+        param: String,
+    },
 }
 
 
@@ -171,19 +179,39 @@ pub const STD_LINESHAPE_PARAMS: &[LineshapeParamDefinition; 4] = &[
 
 
 pub struct DBSpectrum {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub spectrum: Spectrum,
     pub detector: EnergyDetector,
     pub counts: u64,
     pub peak: Option<Vec<f64>>,
     pub peak_bnd_idcs: Option<(usize, usize)>,
     pub peak_counts: Option<f64>,
-    pub peak_fits: PeakFitResults,
+    pub simple_peak_fits: PeakFitResults,
     pub lineshape_params: HashMap<String, LineshapeParam>,
+    pub metadata: HashMap<String, String>,
+}
+
+
+pub struct DBSpectrumArray {
+    pub name: Option<String>,
+    pub names: Option<Vec<String>>,
+    pub filenames: Option<Vec<String>>,
+    pub spectra: Vec<Spectrum>,
+    pub detector: EnergyDetector,
+    pub counts: Vec<u64>,
+    pub peaks: Option<Vec<Vec<f64>>>,
+    pub peak_bnd_idcs: Option<Vec<(usize, usize)>>,
+    pub peak_counts: Option<Vec<f64>>,
+    pub simple_peak_fits: Vec<PeakFitResults>,
+    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
+    pub metadata: HashMap<String, Vec<String>>,
 }
 
 
 impl DBSpectrum {
     pub fn new(
+        name: Option<String>,
         spectrum: Spectrum,
         detector: EnergyDetector,
     ) -> Self {
@@ -192,19 +220,22 @@ impl DBSpectrum {
         );
 
         DBSpectrum {
+            name,
+            filename: None,
             spectrum,
             detector,
             counts,
             peak_counts: None,
             peak: None,
             peak_bnd_idcs: None,
-            peak_fits: PeakFitResults {
+            simple_peak_fits: PeakFitResults {
                 gauss: None,
                 erf_linear_1_gauss: None,
                 erf_linear_2_gauss: None,
                 erf_linear_3_gauss: None,
             },
             lineshape_params: HashMap::new(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -222,10 +253,10 @@ impl DBSpectrum {
 
     fn fit_performed(&self) -> bool {
         !(
-            self.peak_fits.gauss.is_none() &&
-            self.peak_fits.erf_linear_1_gauss.is_none() &&
-            self.peak_fits.erf_linear_2_gauss.is_none() &&
-            self.peak_fits.erf_linear_3_gauss.is_none()
+            self.simple_peak_fits.gauss.is_none() &&
+            self.simple_peak_fits.erf_linear_1_gauss.is_none() &&
+            self.simple_peak_fits.erf_linear_2_gauss.is_none() &&
+            self.simple_peak_fits.erf_linear_3_gauss.is_none()
         )
     }
 
@@ -252,7 +283,7 @@ impl DBSpectrum {
         }
 
         if peak_model == PeakModel::Gauss {
-            self.peak_fits.gauss = Some(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
+            self.simple_peak_fits.gauss = Some(fit_gauss(&x, &y, &vec![max, 511., 1.])?);
             return Ok(());
         }
 
@@ -261,17 +292,17 @@ impl DBSpectrum {
 
         match peak_model {
             PeakModel::ErfLinear1Gauss => {
-                self.peak_fits.erf_linear_1_gauss = Some(fit_erf_linear_1_gauss(
+                self.simple_peak_fits.erf_linear_1_gauss = Some(fit_erf_linear_1_gauss(
                     &x, &y, &vec![max, 511., 1., erf_amp, 0., min]
                 )?);
             },
             PeakModel::ErfLinear2Gauss => {
-                self.peak_fits.erf_linear_2_gauss = Some(fit_erf_linear_2_gauss(
+                self.simple_peak_fits.erf_linear_2_gauss = Some(fit_erf_linear_2_gauss(
                     &x, &y, &vec![max / 2., 511., 1., max / 2., 511., 1.5, erf_amp, 0., min]
                 )?);
             },
             PeakModel::ErfLinear3Gauss => {
-                self.peak_fits.erf_linear_3_gauss = Some(fit_erf_linear_3_gauss(
+                self.simple_peak_fits.erf_linear_3_gauss = Some(fit_erf_linear_3_gauss(
                     &x, &y, &vec![max / 3., 511., 1., max / 3., 511., 1.5, max / 3., 511., 2.0, erf_amp, 0., min]
                 )?);
             },
@@ -297,7 +328,7 @@ impl DBSpectrum {
         let corr = match peak_model {
             PeakModel::Gauss => unreachable!(),
             PeakModel::ErfLinear1Gauss => {
-                let params = &self.peak_fits.erf_linear_1_gauss.as_ref().unwrap().params;
+                let params = &self.simple_peak_fits.erf_linear_1_gauss.as_ref().unwrap().params;
                 erf_linear_background(
                     &x,
                     params.erf_amplitude.val,
@@ -308,7 +339,7 @@ impl DBSpectrum {
                 )
             },
             PeakModel::ErfLinear2Gauss => {
-                let params = &self.peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
+                let params = &self.simple_peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
                 erf_linear_background(
                     &x,
                     params.erf_amplitude.val,
@@ -319,7 +350,7 @@ impl DBSpectrum {
                 )
             },
             PeakModel::ErfLinear3Gauss => {
-                let params = &self.peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
+                let params = &self.simple_peak_fits.erf_linear_2_gauss.as_ref().unwrap().params;
                 erf_linear_background(
                     &x,
                     params.erf_amplitude.val,
@@ -384,7 +415,7 @@ impl DBSpectrum {
 
         self.fit_peak(PeakModel::Gauss)?;
 
-        let c = self.peak_fits.gauss.as_ref().unwrap().params.center.val;
+        let c = self.simple_peak_fits.gauss.as_ref().unwrap().params.center.val;
 
         let mut ecal = self.detector.ecal.ok_or(
             AnalysisError::MissingEnergyCalibration
@@ -671,40 +702,157 @@ impl DBSpectrum {
 }
 
 
-pub struct DBSpectrumArray {
-    pub detector: EnergyDetector,
-    pub spectra: Vec<Spectrum>,
-    pub counts: Vec<u64>,
-    pub peaks: Option<Vec<Vec<f64>>>,
-    pub peak_bnds: Option<Vec<(usize, usize)>>,
-    pub peak_counts: Option<Vec<f64>>,
-    pub peak_params: Vec<PeakFitResults>,
-    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
-}
-
-
 impl DBSpectrumArray {
     pub fn new(detector: EnergyDetector) -> Self {
         DBSpectrumArray {
-            detector,
+            name: None,
+            names: None,
+            filenames: None,
             spectra: Vec::new(),
+            detector,
             counts: Vec::new(),
             peaks: None,
-            peak_bnds: None,
+            peak_bnd_idcs: None,
             peak_counts: None,
-            peak_params: Vec::new(),
+            simple_peak_fits: Vec::new(),
             lineshape_params: HashMap::new(),
+            metadata: HashMap::new(),
         }
-    }
-
-
-    pub fn push(&mut self, d: DBSpectrum) {
-        self.spectra.push(d.spectrum);
-        self.counts.push(d.counts);
     }
 
 
     pub fn len(&self) -> usize {
         self.spectra.len()
+    }
+
+
+    fn push_with_handler(
+        &mut self,
+        mut d: DBSpectrum,
+        push_handler: fn (&str) -> Result<Option<()>, AnalysisError>
+    ) -> Result<(), AnalysisError> {
+        let init_len = self.len();
+
+        if d.detector.name != self.detector.name {
+            return Err(AnalysisError::PushErrorByDetector);
+        }
+
+        // First: Check if we need to return an Err
+
+        let name = if self.names.is_some() || init_len == 0 {
+            if d.name.is_none() && push_handler("name")?.is_none() {
+                self.names = None;
+            } else if init_len == 0 {
+                self.names = Some(Vec::new());
+            }
+            d.name
+        } else {
+            None
+        };
+
+        let filename = if self.filenames.is_some() || init_len == 0 {
+            if d.filename.is_none() && push_handler("filename")?.is_none() {
+                self.filenames = None;
+            } else if init_len == 0 {
+                self.filenames = Some(Vec::new());
+            }
+            d.filename
+        } else {
+            None
+        };
+
+        let peak = if self.peaks.is_some() || init_len == 0 {
+            if d.peak.is_none() && push_handler("peak")?.is_none() {
+                self.peaks = None;
+            } else if init_len == 0 {
+                self.peaks = Some(Vec::new());
+            }
+            d.peak
+        } else {
+            None
+        };
+
+        let peak_bnds = if self.peak_bnd_idcs.is_some() || init_len == 0 {
+            if d.peak_bnd_idcs.is_none() && push_handler("peak_bnd_idcs")?.is_none() {
+                self.peak_bnd_idcs = None;
+            } else if init_len == 0 {
+                self.peak_bnd_idcs = Some(Vec::new());
+            }
+            d.peak_bnd_idcs
+        } else {
+            None
+        };
+
+        let peak_counts = if self.peak_counts.is_some() || init_len == 0 {
+            if d.peak_counts.is_none() && push_handler("peak_counts")?.is_none() {
+                self.peak_counts = None;
+            } else if init_len == 0 {
+                self.peak_counts = Some(Vec::new());
+            }
+            d.peak_counts
+        } else {
+            None
+        };
+
+        if self.lineshape_params.len() > 0 || init_len == 0 {
+            for ls_param in self.lineshape_params.keys().cloned().collect::<Vec<_>>() {
+                if !d.lineshape_params.contains_key(&ls_param) {
+                    if push_handler("lineshape_params")?.is_none() {
+                        self.lineshape_params.remove(&ls_param);
+                    }
+                }
+            }
+        }
+
+        // Then: push onto the Vecs
+
+        if self.names.is_some() && let Some(name) = name {
+            self.names.as_mut().unwrap().push(name);
+        }
+
+        if self.filenames.is_some() && let Some(filename) = filename {
+            self.filenames.as_mut().unwrap().push(filename);
+        }
+
+        if self.peaks.is_some() && let Some(peak) = peak {
+            self.peaks.as_mut().unwrap().push(peak);
+        }
+
+        if self.peak_bnd_idcs.is_some() && let Some(peak_bnds) = peak_bnds {
+            self.peak_bnd_idcs.as_mut().unwrap().push(peak_bnds);
+        }
+
+        if self.peak_counts.is_some() && let Some(peak_counts) = peak_counts {
+            self.peak_counts.as_mut().unwrap().push(peak_counts);
+        }
+
+        for (ls_param, arr) in self.lineshape_params.iter_mut() {
+            arr.push(d.lineshape_params.remove(ls_param).unwrap());
+        }
+
+        self.spectra.push(d.spectrum);
+        self.counts.push(d.counts);
+        self.simple_peak_fits.push(d.simple_peak_fits);
+
+        Ok(())
+    }
+
+
+    /// Add a DBSpectrum to this array. If any parameter of the spectrum is
+    /// None, then this array's corresponding parameter vec is also set to None.
+    /// To avoid this overwrite behaviour, see `try_push`.
+    pub fn push(&mut self, d: DBSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(d, |_| Ok(None))
+    }
+
+
+    /// Add a DBSpectrum to this array. If any parameter of the spectrum is
+    /// None while the corresponding parameter vec of this array is Some, an
+    /// Error is returned. To force-push onto this array by deleting the
+    /// corresponding parameter vec, see `push`.
+    pub fn try_push(&mut self, d: DBSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(
+            d, |param| Err(AnalysisError::PushErrorByParameter { param: param.into() })
+        )
     }
 }

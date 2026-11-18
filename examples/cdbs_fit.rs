@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
         &DataFormat::SlopeN42
     )?;
 
-    let c = m.cdbs.get_mut("OAA x OAB").unwrap();
+    let c = m.cdbs.spectra.get_mut("OAA x OAB").unwrap();
 
     c.correct_ecal(EcalCorrectionOrder::First)?;
 

@@ -629,6 +629,8 @@ pub struct WaveformParamArray {
 
 #[derive(Debug, Clone)]
 pub struct Waveform {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub trace: Trace,
     pub detector: Detector,
     pub vcal: LinearCalibration,
@@ -636,18 +638,23 @@ pub struct Waveform {
     pub global_time_offset: u64,
     pub pulse_polarity: PulsePolarity,
     pub params: WaveformParams,
+    pub metadata: HashMap<String, String>,
 }
 
 
 #[derive(Debug, Clone)]
 pub struct WaveformList {
+    pub name: Option<String>,
     pub data: Arc<[Waveform]>,
     active_indices: Vec<usize>,
+    pub metadata: HashMap<String, String>,
 }
 
 
 #[derive(Debug, Clone)]
 pub struct WaveformArray {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub traces: Arc<[Trace]>,
     pub detector: Detector,
     pub time_channel_disp: f64,
@@ -656,11 +663,13 @@ pub struct WaveformArray {
     pub pulse_polarity: PulsePolarity,
     pub params: WaveformParamArray,
     active_indices: Vec<usize>,
+    pub metadata: HashMap<String, String>,
 }
 
 
 impl Waveform {
     pub fn new(
+        name: Option<String>,
         trace: Trace,
         detector: Detector,
         vcal: LinearCalibration,
@@ -669,6 +678,8 @@ impl Waveform {
         pulse_polarity: PulsePolarity,
     ) -> Self {
         Waveform {
+            name,
+            filename: None,
             trace,
             detector,
             vcal,
@@ -686,6 +697,7 @@ impl Waveform {
                 pulse_decay_time: None,
                 trigger_time: None,
             },
+            metadata: HashMap::new(),
         }
     }
 
@@ -954,12 +966,14 @@ impl Waveform {
 
 
 impl WaveformList {
-    pub fn new(data: Vec<Waveform>) -> Self {
+    pub fn new(name: Option<String>, data: Vec<Waveform>) -> Self {
         let l = data.len();
 
         WaveformList {
+            name,
             data: Arc::from(data),
             active_indices: (0..l).collect(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -975,6 +989,7 @@ impl WaveformList {
         &self, filter: impl FilterWaveform,
     ) -> Result<WaveformList, AnalysisError> {
         Ok(WaveformList {
+            name: self.name.clone(),
             data: self.data.clone(),
             active_indices: self.active_indices
                 .iter()
@@ -983,6 +998,8 @@ impl WaveformList {
                     let waveform = &self.data[i];
 
                     filter.filter(&Waveform {
+                        name: None,
+                        filename: None,
                         trace: waveform.trace.clone(),
                         detector: waveform.detector.clone(),
                         vcal: waveform.vcal,
@@ -990,9 +1007,11 @@ impl WaveformList {
                         global_time_offset: waveform.global_time_offset,
                         pulse_polarity: waveform.pulse_polarity,
                         params: waveform.params,
+                        metadata: HashMap::new(),
                     })
                 })
-                .collect()
+                .collect(),
+            metadata: HashMap::new(),
         })
     }
 
@@ -1010,6 +1029,7 @@ impl WaveformList {
 
 impl WaveformArray {
     pub fn new(
+        name: Option<String>,
         traces: Vec<Trace>,
         detector: Detector,
         time_channel_disp: f64,
@@ -1019,6 +1039,8 @@ impl WaveformArray {
     ) -> Self {
         let l = traces.len();
         WaveformArray {
+            name,
+            filename: None,
             traces: Arc::from(traces),
             detector,
             vcal,
@@ -1037,6 +1059,7 @@ impl WaveformArray {
                 trigger_times: None,
             },
             active_indices: (0..l).collect(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -1044,6 +1067,8 @@ impl WaveformArray {
     pub fn get(&self, index: usize) -> Waveform {
         let i = self.active_indices[index];
         Waveform {
+            name: None,
+            filename: None,
             trace: self.traces[i].clone(),
             detector: self.detector.clone(),
             vcal: self.vcal,
@@ -1085,6 +1110,7 @@ impl WaveformArray {
                     stop_trigger: decay_times.stop_triggers.get(index),
                 }),
             },
+            metadata: HashMap::new(),
         }
     }
 
@@ -1467,6 +1493,8 @@ impl WaveformArray {
             .collect::<Vec<_>>();
 
         WaveformArray {
+            name: None,
+            filename: None,
             traces: self.traces.clone(),
             detector: self.detector.clone(),
             vcal: self.vcal,
@@ -1520,6 +1548,7 @@ impl WaveformArray {
                 ),
             },
             active_indices,
+            metadata: HashMap::new(),
         }
     }
 
@@ -1627,7 +1656,7 @@ impl WaveformArray {
         }
 
         Ok(EventList::try_new_with_active_indices(
-            self.detector.clone(), elist, self.active_indices.clone()
+            None, elist, self.detector.clone(), self.active_indices.clone()
         )?)
     }
 }

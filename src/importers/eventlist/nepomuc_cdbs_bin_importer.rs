@@ -240,6 +240,7 @@ impl CDBSBinFile {
             elists.insert(
                 detname.clone(),
                 EventList::try_new(
+                    None,
                     Detector {
                         name: detname,
                         ecal: None,
@@ -256,12 +257,12 @@ impl CDBSBinFile {
                             "energy".into(),
                             EventListColumn::U16(Arc::from(elist_cols.1))
                         ),
-                    ])
+                    ]),
                 ).unwrap()
             );
         }
 
-        Ok(CDBSBinFile { info, eventlists: CorrelatedEventLists::new(elists) })
+        Ok(CDBSBinFile { info, eventlists: CorrelatedEventLists::new(None, elists) })
     }
 }
 

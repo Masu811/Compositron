@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
     let mut p_cu = Vec::new();
 
     for m in mlist.measurements.iter_mut() {
-        let c = m.cdbs.get_mut("OAA x OAB").unwrap();
+        let c = m.cdbs.spectra.get_mut("OAA x OAB").unwrap();
 
         c.correct_ecal(compositron::core::utils::EcalCorrectionOrder::First)?;
 

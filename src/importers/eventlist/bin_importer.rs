@@ -195,5 +195,5 @@ pub fn import_bin_eventlist_row_major(
         )
     }
 
-    Ok(EventList::try_new(detector, elist)?)
+    Ok(EventList::try_new(None, detector, elist)?)
 }

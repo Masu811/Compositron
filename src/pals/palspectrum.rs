@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use thiserror::Error;
 
 use crate::constants::FWHM_OVER_SIGMA;
@@ -18,6 +20,17 @@ pub enum AnalysisError {
 
     #[error("Missing time calibration")]
     MissingTimeCalibration,
+
+    #[error("Cannot push CDBSpectrum onto array due to mismatched detector")]
+    PushErrorByDetector,
+
+    #[error("Cannot push CDBSpectrum onto array due to mismatched orientations")]
+    PushErrorByOrientation,
+
+    #[error("Cannot push CDBSpectrum onto array due to missing parameter: {param}")]
+    PushErrorByParameter {
+        param: String,
+    },
 }
 
 
@@ -47,16 +60,33 @@ pub struct PeakFitResults {
 
 
 pub struct PALSpectrum {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub spectrum: Spectrum,
     pub detpair: TimingDetectorPair,
     pub counts: u64,
-    pub peak_params: PeakFitResults,
+    pub simple_peak_fits: PeakFitResults,
     pub fit_result: Option<FitResult>,
+    pub metadata: HashMap<String, String>,
+}
+
+
+pub struct PALSpectrumArray {
+    pub name: Option<String>,
+    pub names: Option<Vec<String>>,
+    pub filenames: Option<Vec<String>>,
+    pub spectra: Vec<Spectrum>,
+    pub detpair: TimingDetectorPair,
+    pub counts: Vec<u64>,
+    pub simple_peak_fits: Vec<PeakFitResults>,
+    pub fit_results: Option<Vec<FitResult>>,
+    pub metadata: HashMap<String, Vec<String>>,
 }
 
 
 impl PALSpectrum {
     pub fn new(
+        name: Option<String>,
         spectrum: Spectrum,
         detpair: TimingDetectorPair,
     ) -> Self {
@@ -65,11 +95,14 @@ impl PALSpectrum {
         );
 
         PALSpectrum {
+            name,
+            filename: None,
             spectrum,
             detpair,
             counts,
-            peak_params: PeakFitResults { gauss: None },
+            simple_peak_fits: PeakFitResults { gauss: None },
             fit_result: None,
+            metadata: HashMap::new(),
         }
     }
 
@@ -101,7 +134,7 @@ impl PALSpectrum {
 
         let x0 = peak_params.params.center.val;
 
-        self.peak_params.gauss = Some(GaussFitResult {
+        self.simple_peak_fits.gauss = Some(GaussFitResult {
             amplitude: peak_params.params.amplitude,
             peak_idx: peak_params.params.center,
             fwhm: SimpleFitParam {
@@ -121,7 +154,7 @@ impl PALSpectrum {
         fit_end_idx: usize,
     ) -> Result<(), AnalysisError> {
 
-        let peak_center = if let Some(gauss) = &self.peak_params.gauss {
+        let peak_center = if let Some(gauss) = &self.simple_peak_fits.gauss {
             gauss.amplitude.val
         } else {
             self.get_peak_center()?
@@ -407,34 +440,110 @@ impl PALSpectrum {
 }
 
 
-pub struct PALSpectrumArray {
-    pub detpair: TimingDetectorPair,
-    pub spectra: Vec<Spectrum>,
-    pub counts: Vec<u64>,
-    pub peak_params: Vec<PeakFitResults>,
-    pub fit_results: Option<Vec<FitResult>>,
-}
-
-
 impl PALSpectrumArray {
     pub fn new(detpair: TimingDetectorPair) -> Self {
         PALSpectrumArray {
-            detpair,
+            name: None,
+            names: None,
+            filenames: None,
             spectra: Vec::new(),
+            detpair,
             counts: Vec::new(),
-            peak_params: Vec::new(),
+            simple_peak_fits: Vec::new(),
             fit_results: None,
+            metadata: HashMap::new(),
         }
-    }
-
-
-    pub fn push(&mut self, p: PALSpectrum) {
-        self.spectra.push(p.spectrum);
-        self.counts.push(p.counts);
     }
 
 
     pub fn len(&self) -> usize {
         self.spectra.len()
+    }
+
+
+    fn push_with_handler(
+        &mut self,
+        p: PALSpectrum,
+        push_handler: fn (&str) -> Result<Option<()>, AnalysisError>
+    ) -> Result<(), AnalysisError> {
+        let init_len = self.len();
+
+        if p.detpair.name != self.detpair.name {
+            return Err(AnalysisError::PushErrorByDetector);
+        }
+
+        // First: Check if we need to return an Err
+
+        let name = if self.names.is_some() || init_len == 0 {
+            if p.name.is_some() && init_len == 0 {
+                self.names = Some(Vec::new());
+            } else if push_handler("name")?.is_none() {
+                self.names = None;
+            }
+            p.name
+        } else {
+            None
+        };
+
+        let filename = if self.filenames.is_some() || init_len == 0 {
+            if p.filename.is_some() && init_len == 0 {
+                self.filenames = Some(Vec::new());
+            } else if push_handler("filename")?.is_none() {
+                self.filenames = None;
+            }
+            p.filename
+        } else {
+            None
+        };
+
+        let fit_result = if self.fit_results.is_some() || init_len == 0 {
+            if p.fit_result.is_some() && init_len == 0 {
+                self.fit_results = Some(Vec::new());
+            } else if push_handler("fit_result")?.is_none() {
+                self.fit_results = None;
+            }
+            p.fit_result
+        } else {
+            None
+        };
+
+        // Then: push onto the Vecs
+
+        if self.names.is_some() && let Some(name) = name {
+            self.names.as_mut().unwrap().push(name);
+        }
+
+        if self.filenames.is_some() && let Some(filename) = filename {
+            self.filenames.as_mut().unwrap().push(filename);
+        }
+
+        if self.fit_results.is_some() && let Some(fit_result) = fit_result {
+            self.fit_results.as_mut().unwrap().push(fit_result);
+        }
+
+        self.spectra.push(p.spectrum);
+        self.counts.push(p.counts);
+        self.simple_peak_fits.push(p.simple_peak_fits);
+
+        Ok(())
+    }
+
+
+    /// Add a CDBSpectrum to this array. If any parameter of the spectrum is
+    /// None, then this array's corresponding parameter vec is also set to None.
+    /// To avoid this overwrite behaviour, see `try_push`.
+    pub fn push(&mut self, p: PALSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(p, |_| Ok(None))
+    }
+
+
+    /// Add a CDBSpectrum to this array. If any parameter of the spectrum is
+    /// None while the corresponding parameter vec of this array is Some, an
+    /// Error is returned. To force-push onto this array by deleting the
+    /// corresponding parameter vec, see `push`.
+    pub fn try_push(&mut self, p: PALSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(
+            p, |param| Err(AnalysisError::PushErrorByParameter { param: param.into() })
+        )
     }
 }

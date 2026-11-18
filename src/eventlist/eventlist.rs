@@ -441,31 +441,41 @@ impl EventListColumn {
 
 #[derive(Debug, Clone)]
 pub struct EventList {
-    pub detector: Detector,
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub columns: HashMap<String, EventListColumn>,
+    pub detector: Detector,
     active_indices: Vec<usize>,
     arc_len: usize,
+    pub metadata: HashMap<String, String>,
 }
 
 
 #[derive(Debug, Clone)]
 pub struct CorrelatedEventLists {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub eventlists: HashMap<String, EventList>,
+    pub metadata: HashMap<String, String>,
 }
 
 
 #[derive(Debug, Clone)]
 pub struct CoincidenceEventList {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     single_columns: HashMap<String, EventList>,
     shared_columns: EventList,
     shared_active_indices: Vec<usize>,
+    pub metadata: HashMap<String, String>,
 }
 
 
 impl EventList {
     pub fn try_new_with_active_indices(
-        detector: Detector,
+        name: Option<String>,
         columns: HashMap<String, EventListColumn>,
+        detector: Detector,
         active_indices: Vec<usize>,
     ) -> Result<Self, AnalysisError> {
         let nrows = active_indices.len();
@@ -477,16 +487,21 @@ impl EventList {
         }
 
         Ok(EventList {
-            detector,
+            name,
+            filename: None,
             columns,
+            detector,
             active_indices,
             arc_len: nrows,
+            metadata: HashMap::new(),
         })
     }
 
 
     pub fn try_new(
-        detector: Detector, columns: HashMap<String, EventListColumn>,
+        name: Option<String>,
+        detector: Detector,
+        columns: HashMap<String, EventListColumn>,
     ) -> Result<Self, AnalysisError> {
         let ncols = columns.len();
 
@@ -497,7 +512,7 @@ impl EventList {
         };
 
         EventList::try_new_with_active_indices(
-            detector, columns, (0..nrows).collect()
+            name, columns, detector, (0..nrows).collect()
         )
     }
 
@@ -595,6 +610,7 @@ impl EventList {
         let spectrum = self.to_histogram(energy_colname, bins)?;
 
         Ok(DBSpectrum::new(
+            None,
             spectrum,
             EnergyDetector {
                 name: self.detector.name.clone(),
@@ -640,8 +656,13 @@ impl EventList {
 
 
 impl CorrelatedEventLists {
-    pub fn new(eventlists: HashMap<String, EventList>) -> Self {
-        CorrelatedEventLists { eventlists }
+    pub fn new(
+        name: Option<String>,
+        eventlists: HashMap<String, EventList>,
+    ) -> Self {
+        CorrelatedEventLists {
+            name, filename: None, eventlists, metadata: HashMap::new()
+        }
     }
 
 
@@ -929,32 +950,44 @@ impl CorrelatedEventLists {
         single_columns.insert(
             first_detname.into(),
             EventList {
-                detector: first_det_elist.detector.clone(),
+                name: None,
+                filename: None,
                 columns: first_det_elist.columns.clone(),
+                detector: first_det_elist.detector.clone(),
                 active_indices: first_det_idcs,
                 arc_len: first_det_elist.arc_len,
+                metadata: HashMap::new(),
             }
         );
 
         single_columns.insert(
             second_detname.into(),
             EventList {
-                detector: second_det_elist.detector.clone(),
+                name: None,
+                filename: None,
                 columns: second_det_elist.columns.clone(),
+                detector: second_det_elist.detector.clone(),
                 active_indices: second_det_idcs,
                 arc_len: second_det_elist.arc_len,
+                metadata: HashMap::new(),
             }
         );
 
         Ok(CoincidenceEventList {
+            name: None,
+            filename: None,
             single_columns,
             shared_columns: EventList {
-                detector: detpair,
+                name: None,
+                filename: None,
                 columns: HashMap::new(),
+                detector: detpair,
                 active_indices: Vec::new(),
                 arc_len: 0,
+                metadata: HashMap::new(),
             },
             shared_active_indices: Vec::new(),
+            metadata: HashMap::new(),
         })
     }
 
@@ -1120,6 +1153,7 @@ impl CoincidenceEventList {
         let spectrum = elist.to_histogram(energy_colname, bins)?;
 
         Ok(DBSpectrum::new(
+            None,
             spectrum,
             EnergyDetector {
                 name: elist.detector.name.clone(),

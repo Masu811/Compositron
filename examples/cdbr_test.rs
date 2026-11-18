@@ -46,6 +46,7 @@ fn import_csv(
     };
 
     let mut c = CDBSpectrum::new(
+        None,
         Spectrum2D::from_row_major(&spectrum, nrows, nrows),
         EnergyDetectorPair {
             name: "A x B".into(),
@@ -73,7 +74,7 @@ fn import_csv(
         arr.fill_row(arr.nrows() - 1, 0);
     });
 
-    m.cdbs.insert("A x B".into(), c);
+    m.cdbs.spectra.insert("A x B".into(), c);
 
     Ok(m)
 }
@@ -88,7 +89,7 @@ fn main() -> anyhow::Result<()> {
         &DataFormat::Custom { importer: import_csv, extension: "txt".into() }
     )?;
 
-    let c = m.cdbs.get_mut("A x B").unwrap();
+    let c = m.cdbs.spectra.get_mut("A x B").unwrap();
 
     c.correct_ecal(compositron::core::utils::EcalCorrectionOrder::First)?;
 

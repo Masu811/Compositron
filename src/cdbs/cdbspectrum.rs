@@ -92,6 +92,17 @@ pub enum AnalysisError {
 
     #[error("Could not fold projection as bins are not symmetric around 0")]
     FoldError,
+
+    #[error("Cannot push CDBSpectrum onto array due to mismatched detector")]
+    PushErrorByDetector,
+
+    #[error("Cannot push CDBSpectrum onto array due to mismatched orientations")]
+    PushErrorByOrientation,
+
+    #[error("Cannot push CDBSpectrum onto array due to missing parameter: {param}")]
+    PushErrorByParameter {
+        param: String,
+    },
 }
 
 
@@ -379,16 +390,12 @@ fn convert_ellipse(
 }
 
 
-pub struct FoldedProjection {
-    pub energies: DVector<f64>,
-    pub spectrum: DVector<f64>,
-}
-
-
 pub struct Projection {
-    pub spectrum: DVector<f64>,
-    pub parent_detpair_name: String,
+    pub name: Option<String>,
+    pub parent_filename: Option<String>,
+    pub parent_detpair: EnergyDetectorPair,
     pub parent_axis: Axis,
+    pub spectrum: DVector<f64>,
     pub ecal: Option<LinearCalibration>,
     pub bins: Option<DVector<f64>>,
     pub counts: f64,
@@ -397,18 +404,21 @@ pub struct Projection {
 
 impl Projection {
     pub fn new(
-        spectrum: DVector<f64>,
-        parent_detpair_name: String,
+        name: Option<String>,
+        parent_detpair: EnergyDetectorPair,
         parent_axis: Axis,
+        spectrum: DVector<f64>,
         ecal: Option<LinearCalibration>,
         bins: Option<DVector<f64>>,
     ) -> Self {
         let counts = spectrum.iter().sum::<f64>();
 
         Projection {
-            spectrum,
-            parent_detpair_name,
+            name,
+            parent_filename: None,
+            parent_detpair,
             parent_axis,
+            spectrum,
             ecal,
             bins,
             counts,
@@ -433,7 +443,7 @@ impl Projection {
     }
 
 
-    pub fn fold(&self) -> Result<FoldedProjection, AnalysisError> {
+    pub fn fold(&self) -> Result<Projection, AnalysisError> {
         if let Some(ecal) = self.ecal
             && (ecal.to_index_f64(0.) % 1. - 0.5).abs() < 1e-2
         {
@@ -460,7 +470,16 @@ impl Projection {
                     .map(|i| ecal.from_index(i))
             );
 
-            return Ok(FoldedProjection { energies, spectrum });
+            return Ok(Projection {
+                name: self.name.clone(),
+                parent_filename: self.parent_filename.clone(),
+                parent_detpair: self.parent_detpair.clone(),
+                parent_axis: self.parent_axis,
+                spectrum,
+                ecal: None,
+                bins: Some(energies),
+                counts: self.counts,
+            });
         } else if let Some(bins) = &self.bins
             && bins.iter().map(|x| x).any(|x| x.abs() < 1e-2)
         {
@@ -503,9 +522,15 @@ impl Projection {
                 );
             }
 
-            return Ok(FoldedProjection {
-                energies: DVector::from_vec(energies),
+            return Ok(Projection {
+                name: self.name.clone(),
+                parent_filename: self.parent_filename.clone(),
+                parent_detpair: self.parent_detpair.clone(),
+                parent_axis: self.parent_axis,
                 spectrum: DVector::from_vec(spectrum),
+                ecal: None,
+                bins: Some(DVector::from_vec(energies)),
+                counts: self.counts,
             })
         }
 
@@ -519,35 +544,69 @@ impl Projection {
         };
 
         Ok(DBSpectrum::new(
+            None,
             Spectrum::from(
                 self.spectrum.iter().map(|&x| x as u64).collect::<Vec<u64>>()
             ),
             EnergyDetector {
-                name: self.parent_detpair_name.clone(),
+                name: self.parent_detpair.name.clone(),
                 ecal: Some(ecal),
                 corrected_ecal: None,
                 eres: None,
-            }
+            },
         ))
     }
 }
 
 
+pub struct ProjectionRatio {
+    pub name: Option<String>,
+    pub parent_filename: Option<String>,
+    pub num_name: Option<String>,
+    pub denom_name: Option<String>,
+    pub parent_detpair: EnergyDetectorPair,
+    pub energy_points: Option<DVector<f64>>,
+    pub ratio_points: Option<DVector<f64>>,
+    pub stddev_points: Option<DVector<f64>>,
+}
+
+
 pub struct CDBSpectrum {
+    pub name: Option<String>,
+    pub filename: Option<String>,
     pub spectrum: Spectrum2D,
     pub detpair: EnergyDetectorPair,
     pub orientation: Orientation,
     pub counts: u64,
     pub peak: Option<DMatrix<f64>>,
-    pub peak_bnds: Option<((usize, usize), (usize, usize))>,
+    pub peak_bnd_idcs: Option<((usize, usize), (usize, usize))>,
     pub peak_counts: Option<f64>,
-    pub peak_fits: PeakFitResults,
+    pub simple_peak_fits: PeakFitResults,
     pub lineshape_params: HashMap<String, LineshapeParam>,
+    pub metadata: HashMap<String, String>,
+}
+
+
+pub struct CDBSpectrumArray {
+    pub name: Option<String>,
+    pub names: Option<Vec<String>>,
+    pub filenames: Option<Vec<String>>,
+    pub spectra: Vec<Spectrum2D>,
+    pub detpair: EnergyDetectorPair,
+    pub orientation: Orientation,
+    pub counts: Vec<u64>,
+    pub peaks: Option<Vec<DMatrix<f64>>>,
+    pub peak_bnd_idcs: Option<Vec<((usize, usize), (usize, usize))>>,
+    pub peak_counts: Option<Vec<f64>>,
+    pub simple_peak_fits: Vec<PeakFitResults>,
+    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
+    pub metadata: HashMap<String, Vec<String>>,
 }
 
 
 impl CDBSpectrum {
     pub fn new(
+        name: Option<String>,
         spectrum: Spectrum2D,
         detpair: EnergyDetectorPair,
         orientation: Orientation,
@@ -556,15 +615,18 @@ impl CDBSpectrum {
             &spectrum, arr => arr.iter().map(|&x| x as u64).sum::<u64>()
         );
         CDBSpectrum {
+            name,
+            filename: None,
             spectrum,
             detpair,
             orientation,
             counts,
             peak: None,
-            peak_bnds: None,
+            peak_bnd_idcs: None,
             peak_counts: None,
-            peak_fits: PeakFitResults { gauss: None },
+            simple_peak_fits: PeakFitResults { gauss: None },
             lineshape_params: HashMap::new(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -585,7 +647,7 @@ impl CDBSpectrum {
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if in_corrected_peak {
-            let Some(bnds) = self.peak_bnds else {
+            let Some(bnds) = self.peak_bnd_idcs else {
                 return Err(AnalysisError::NoPeakExtracted);
             };
             bnds
@@ -687,9 +749,10 @@ impl CDBSpectrum {
                 };
 
                 Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
+                    self.name.clone(),
+                    self.detpair.clone(),
                     onto_axis,
+                    spectrum,
                     Some(ecal),
                     None,
                 ))
@@ -765,9 +828,10 @@ impl CDBSpectrum {
                 }
 
                 Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
+                    self.name.clone(),
+                    self.detpair.clone(),
                     onto_axis,
+                    spectrum,
                     None,
                     Some(DVector::from_column_slice(&bins_kev))
                 ))
@@ -791,9 +855,10 @@ impl CDBSpectrum {
                 );
 
                 Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
+                    self.name.clone(),
+                    self.detpair.clone(),
                     onto_axis,
+                    spectrum,
                     self.detpair.first_det.corrected_ecal.or(
                         self.detpair.first_det.ecal
                     ),
@@ -811,9 +876,10 @@ impl CDBSpectrum {
                 );
 
                 Ok(Projection::new(
-                    spectrum,
-                    self.detpair.name.clone(),
+                    self.name.clone(),
+                    self.detpair.clone(),
                     onto_axis,
+                    spectrum,
                     self.detpair.second_det.corrected_ecal.or(
                         self.detpair.second_det.ecal
                     ),
@@ -834,7 +900,7 @@ impl CDBSpectrum {
             return Err(AnalysisError::NoPeakExtracted);
         };
 
-        let Some(peak_bnds) = self.peak_bnds else {
+        let Some(peak_bnds) = self.peak_bnd_idcs else {
             return Err(AnalysisError::NoPeakExtracted);
         };
 
@@ -875,14 +941,14 @@ impl CDBSpectrum {
                     Orientation::CoincAligned => 0.,
                 };
 
-                self.peak_fits.gauss = Some(fit_gauss2d(
+                self.simple_peak_fits.gauss = Some(fit_gauss2d(
                     &x, &y, peak, &[max, x0, y0, 0.7, 1.8, phi]
                 )?);
             },
         };
 
         if self.detpair.eres.is_none() {
-            let params = &self.peak_fits.gauss.as_ref().unwrap().params;
+            let params = &self.simple_peak_fits.gauss.as_ref().unwrap().params;
             let sig_x = params.sig_x.val;
             let sig_y = params.sig_y.val;
 
@@ -944,7 +1010,7 @@ impl CDBSpectrum {
             DMatrix::<f64>::from_fn(nrows, ncols, |i, j| {view[(i, j)] as f64})
         }));
 
-        self.peak_bnds = Some(((first_row, last_row), (first_col, last_col)));
+        self.peak_bnd_idcs = Some(((first_row, last_row), (first_col, last_col)));
 
         self.subtract_bg(bg_model);
 
@@ -965,11 +1031,11 @@ impl CDBSpectrum {
             self.extract_peak((4., 4.), BackgroundModel::None)?;
         }
 
-        if self.peak_fits.gauss.is_none() {
+        if self.simple_peak_fits.gauss.is_none() {
             self.fit_2d_peak(BackgroundModel::None)?;
         }
 
-        let params = &self.peak_fits.gauss.as_ref().unwrap().params;
+        let params = &self.simple_peak_fits.gauss.as_ref().unwrap().params;
         let x0 = params.x0.val;
         let y0 = params.y0.val;
 
@@ -1278,7 +1344,7 @@ impl CDBSpectrum {
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if in_corrected_peak {
-            let Some(bnds) = self.peak_bnds else {
+            let Some(bnds) = self.peak_bnd_idcs else {
                 return Err(AnalysisError::NoPeakExtracted);
             };
             bnds
@@ -1407,7 +1473,7 @@ impl CDBSpectrum {
         let ecal = (ecal_1, ecal_2);
 
         let integral_bnds = if definition.in_corrected_peak {
-            let Some(bnds) = self.peak_bnds else {
+            let Some(bnds) = self.peak_bnd_idcs else {
                 return Err(AnalysisError::NoPeakExtracted);
             };
             bnds
@@ -1539,42 +1605,165 @@ impl CDBSpectrum {
 }
 
 
-pub struct CDBSpectrumArray {
-    pub detpair: EnergyDetectorPair,
-    pub spectra: Vec<Spectrum2D>,
-    pub orientation: Orientation,
-    pub counts: Vec<u64>,
-    pub peaks: Option<Vec<DMatrix<f64>>>,
-    pub peak_bnds: Option<Vec<((usize, usize), (usize, usize))>>,
-    pub peak_counts: Option<Vec<f64>>,
-    pub peak_params: Vec<PeakFitResults>,
-    pub lineshape_params: HashMap<String, Vec<LineshapeParam>>,
-}
-
-
 impl CDBSpectrumArray {
-    pub fn new(detpair: EnergyDetectorPair, orientation: Orientation) -> Self {
+    pub fn new(
+        detpair: EnergyDetectorPair,
+        orientation: Orientation,
+    ) -> Self {
         CDBSpectrumArray {
-            detpair,
+            name: None,
+            names: None,
+            filenames: None,
             spectra: Vec::new(),
+            detpair,
             orientation,
             counts: Vec::new(),
             peaks: None,
-            peak_bnds: None,
+            peak_bnd_idcs: None,
             peak_counts: None,
-            peak_params: Vec::new(),
+            simple_peak_fits: Vec::new(),
             lineshape_params: HashMap::new(),
+            metadata: HashMap::new(),
         }
-    }
-
-
-    pub fn push(&mut self, c: CDBSpectrum) {
-        self.spectra.push(c.spectrum);
-        self.counts.push(c.counts);
     }
 
 
     pub fn len(&self) -> usize {
         self.spectra.len()
+    }
+
+
+    fn push_with_handler(
+        &mut self,
+        mut c: CDBSpectrum,
+        push_handler: fn (&str) -> Result<Option<()>, AnalysisError>
+    ) -> Result<(), AnalysisError> {
+        let init_len = self.len();
+
+        if c.detpair.name != self.detpair.name {
+            return Err(AnalysisError::PushErrorByDetector);
+        }
+
+        if c.orientation != self.orientation {
+            return Err(AnalysisError::PushErrorByOrientation);
+        }
+
+        // First: Check if we need to return an Err
+
+        let name = if self.names.is_some() || init_len == 0 {
+            if c.name.is_none() && push_handler("name")?.is_none() {
+                self.names = None;
+            } else if init_len == 0 {
+                self.names = Some(Vec::new());
+            }
+            c.name
+        } else {
+            None
+        };
+
+        let filename = if self.filenames.is_some() || init_len == 0 {
+            if c.filename.is_none() && push_handler("filename")?.is_none() {
+                self.filenames = None;
+            } else if init_len == 0 {
+                self.filenames = Some(Vec::new());
+            }
+            c.filename
+        } else {
+            None
+        };
+
+        let peak = if self.peaks.is_some() || init_len == 0 {
+            if c.peak.is_none() && push_handler("peak")?.is_none() {
+                self.peaks = None;
+            } else if init_len == 0 {
+                self.peaks = Some(Vec::new());
+            }
+            c.peak
+        } else {
+            None
+        };
+
+        let peak_bnds = if self.peak_bnd_idcs.is_some() || init_len == 0 {
+            if c.peak_bnd_idcs.is_none() && push_handler("peak_bnd_idcs")?.is_none() {
+                self.peak_bnd_idcs = None;
+            } else if init_len == 0 {
+                self.peak_bnd_idcs = Some(Vec::new());
+            }
+            c.peak_bnd_idcs
+        } else {
+            None
+        };
+
+        let peak_counts = if self.peak_counts.is_some() || init_len == 0 {
+            if c.peak_counts.is_none() && push_handler("peak_counts")?.is_none() {
+                self.peak_counts = None;
+            } else if init_len == 0 {
+                self.peak_counts = Some(Vec::new());
+            }
+            c.peak_counts
+        } else {
+            None
+        };
+
+        if self.lineshape_params.len() > 0 || init_len == 0 {
+            for ls_param in self.lineshape_params.keys().cloned().collect::<Vec<_>>() {
+                if !c.lineshape_params.contains_key(&ls_param) {
+                    if push_handler("lineshape_params")?.is_none() {
+                        self.lineshape_params.remove(&ls_param);
+                    }
+                }
+            }
+        }
+
+        // Then: push onto the Vecs
+
+        if self.names.is_some() && let Some(name) = name {
+            self.names.as_mut().unwrap().push(name);
+        }
+
+        if self.filenames.is_some() && let Some(filename) = filename {
+            self.filenames.as_mut().unwrap().push(filename);
+        }
+
+        if self.peaks.is_some() && let Some(peak) = peak {
+            self.peaks.as_mut().unwrap().push(peak);
+        }
+
+        if self.peak_bnd_idcs.is_some() && let Some(peak_bnds) = peak_bnds {
+            self.peak_bnd_idcs.as_mut().unwrap().push(peak_bnds);
+        }
+
+        if self.peak_counts.is_some() && let Some(peak_counts) = peak_counts {
+            self.peak_counts.as_mut().unwrap().push(peak_counts);
+        }
+
+        for (ls_param, arr) in self.lineshape_params.iter_mut() {
+            arr.push(c.lineshape_params.remove(ls_param).unwrap());
+        }
+
+        self.spectra.push(c.spectrum);
+        self.counts.push(c.counts);
+        self.simple_peak_fits.push(c.simple_peak_fits);
+
+        Ok(())
+    }
+
+
+    /// Add a CDBSpectrum to this array. If any parameter of the spectrum is
+    /// None, then this array's corresponding parameter vec is also set to None.
+    /// To avoid this overwrite behaviour, see `try_push`.
+    pub fn push(&mut self, c: CDBSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(c, |_| Ok(None))
+    }
+
+
+    /// Add a CDBSpectrum to this array. If any parameter of the spectrum is
+    /// None while the corresponding parameter vec of this array is Some, an
+    /// Error is returned. To force-push onto this array by deleting the
+    /// corresponding parameter vec, see `push`.
+    pub fn try_push(&mut self, c: CDBSpectrum) -> Result<(), AnalysisError> {
+        self.push_with_handler(
+            c, |param| Err(AnalysisError::PushErrorByParameter { param: param.into() })
+        )
     }
 }

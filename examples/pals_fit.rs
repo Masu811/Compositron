@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         "res_t0_2": (0, -200, 200)
     )?;
 
-    let s = m.pals.get_mut("A").unwrap();
+    let s = m.pals.spectra.get_mut("A").unwrap();
 
     s.fit(lt_model, 16500, 18000)?;
 

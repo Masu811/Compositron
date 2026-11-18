@@ -6,11 +6,11 @@ fn main() -> anyhow::Result<()> {
     let mut mlist = MeasurementList::from_dir(dir, &DataFormat::SlopeN42)?;
 
     for m in mlist.measurements.iter_mut() {
-        for d in m.dbs.values_mut() {
+        for d in m.dbs.spectra.values_mut() {
             d.default_analyze()?;
         }
 
-        for c in m.cdbs.values_mut() {
+        for c in m.cdbs.spectra.values_mut() {
             c.default_analyze()?;
         }
     }

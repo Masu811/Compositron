@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
         )?;
         imports.push(start.elapsed().as_nanos());
 
-        let c = m.cdbs.get_mut("OAA x OAB").unwrap();
+        let c = m.cdbs.spectra.get_mut("OAA x OAB").unwrap();
 
         let start = Instant::now();
         c.correct_ecal(EcalCorrectionOrder::First)?;

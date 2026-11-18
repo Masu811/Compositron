@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
         &DataFormat::SlopeN42
     )?;
 
-    let d = m.dbs.get_mut("OAB").unwrap();
+    let d = m.dbs.spectra.get_mut("OAB").unwrap();
 
     d.default_analyze()?;
 
